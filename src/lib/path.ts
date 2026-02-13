@@ -1,4 +1,4 @@
-const ARCHIVE_EXTENSIONS = [".tar.gz", ".tgz", ".zip", ".tar"];
+const ARCHIVE_EXTENSIONS = [".tar.gz", ".tgz", ".zip", ".tar", ".gz"];
 
 export function normalizePath(input: string): string {
   const cleaned = input.replaceAll("\\", "/").replace(/\/+/g, "/");

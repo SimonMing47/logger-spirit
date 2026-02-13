@@ -2,14 +2,17 @@
   "queries": [
     "PAYMENT_TIMEOUT",
     "DB_CONN_REFUSED",
+    "retry storm",
     "KafkaOffsetLag",
     "INVENTORY_STALE",
     "REDIS_TIMEOUT",
     "beta-trace-1002",
-    "alpha-trace-0001"
+    "alpha-trace-0001",
+    "gamma-trace-0001"
   ],
   "archives": [
     "incident-alpha-2026-02-12.zip",
-    "incident-beta-2026-02-12.zip"
+    "incident-beta-2026-02-12.zip",
+    "incident-gamma-2026-02-13-nested-gz.zip"
   ]
 }

@@ -12,7 +12,12 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$OUT_DIR"
-rm -f "$OUT_DIR"/*.zip "$OUT_DIR"/*.json
+# Only delete artifacts managed by this script.
+rm -f \
+  "$OUT_DIR/incident-alpha-2026-02-12.zip" \
+  "$OUT_DIR/incident-beta-2026-02-12.zip" \
+  "$OUT_DIR/incident-gamma-2026-02-13-nested-gz.zip" \
+  "$OUT_DIR/search-hints.json"
 
 write_checkout_pod() {
   local target_zip="$1"
@@ -188,6 +193,126 @@ LOG
   )
 }
 
+write_checkout_gz_pod() {
+  local target_zip="$1"
+  local pod_dir="$WORK_DIR/checkout-gz-pod"
+  mkdir -p "$pod_dir/logs" "$pod_dir/archives"
+
+  local plain_log="$pod_dir/logs/app.log"
+  : > "$plain_log"
+  for i in $(seq 1 6000); do
+    local sec
+    sec="$(printf '%02d' $((i % 60)))"
+    local ms
+    ms="$(printf '%03d' $((i % 1000)))"
+    local level="INFO"
+    local msg="checkout ok"
+    if (( i % 211 == 0 )); then
+      level="ERROR"
+      msg="payment gateway timeout"
+    elif (( i % 97 == 0 )); then
+      level="WARN"
+      msg="retry backoff"
+    fi
+    printf "2026-02-13T09:15:%s.%sZ %-5s namespace=prod pod=checkout-gz-7f9d container=app service=checkout traceId=gamma-trace-0001 spanId=%08x message=\"%s\"\n" \
+      "$sec" "$ms" "$level" "$i" "$msg" >> "$plain_log"
+  done
+  gzip -c "$plain_log" > "$pod_dir/logs/app.log.gz"
+  rm -f "$plain_log"
+
+  cat > "$pod_dir/logs/nginx-access.log" <<'LOG'
+10.9.2.18 - - [13/Feb/2026:09:15:23 +0000] "POST /api/v1/checkout HTTP/1.1" 504 128 "-" "gateway/2.3" request_time=3.013 upstream_response_time=3.001 traceId=gamma-trace-0001
+LOG
+
+  # Build a multi-layer nested zip that eventually contains .log.gz and a .zip.gz wrapper.
+  local deep_stage="$WORK_DIR/checkout-gz-deep-stage"
+  rm -rf "$deep_stage"
+  mkdir -p "$deep_stage/level3/content" "$deep_stage/level2/content" "$deep_stage/level1/content"
+
+  # Level 3 payload: gz logs + a gz JSON file.
+  cat > "$deep_stage/level3/content/trace-level-3.log" <<'LOG'
+2026-02-13T09:15:23.225Z ERROR traceId=gamma-trace-0001 span=checkout.call_payment code=PAYMENT_TIMEOUT message="timeout after 3000ms"
+2026-02-13T09:15:23.229Z WARN  traceId=gamma-trace-0001 span=checkout.retry event=retry_backoff durationMs=150
+LOG
+  gzip -c "$deep_stage/level3/content/trace-level-3.log" > "$deep_stage/level3/content/trace-level-3.log.gz"
+  rm -f "$deep_stage/level3/content/trace-level-3.log"
+
+  cat > "$deep_stage/level3/content/span.json" <<'JSON'
+{"traceId":"gamma-trace-0001","spanId":"0000002a","service":"checkout","event":"timeout","ts":"2026-02-13T09:15:23.225Z"}
+JSON
+  gzip -c "$deep_stage/level3/content/span.json" > "$deep_stage/level3/content/span.json.gz"
+  rm -f "$deep_stage/level3/content/span.json"
+
+  (
+    cd "$deep_stage/level3"
+    zip -X -q -r "level3.zip" "content"
+    gzip -c "level3.zip" > "$deep_stage/level2/content/level3.zip.gz"
+  )
+
+  # Level 2: include a couple of gz chunks + the level3.zip.gz wrapper.
+  printf "2026-02-13T09:15:23.232Z INFO  traceId=gamma-trace-0001 chunk=1 message=\"deep chunk 1\"\n" > "$deep_stage/level2/content/chunk-1.log"
+  gzip -c "$deep_stage/level2/content/chunk-1.log" > "$deep_stage/level2/content/chunk-1.log.gz"
+  rm -f "$deep_stage/level2/content/chunk-1.log"
+
+  printf "2026-02-13T09:15:23.235Z INFO  traceId=gamma-trace-0001 chunk=2 message=\"deep chunk 2\"\n" > "$deep_stage/level2/content/chunk-2.log"
+  gzip -c "$deep_stage/level2/content/chunk-2.log" > "$deep_stage/level2/content/chunk-2.log.gz"
+  rm -f "$deep_stage/level2/content/chunk-2.log"
+
+  (
+    cd "$deep_stage/level2"
+    zip -X -q -r "$deep_stage/level1/content/level2.zip" "content"
+  )
+
+  printf "Nested archive chain: level1.zip -> level2.zip -> level3.zip.gz -> level3.zip -> *.log.gz/*.json.gz\n" > "$deep_stage/level1/content/README.txt"
+  (
+    cd "$deep_stage/level1"
+    zip -X -q -r "$pod_dir/archives/nested-level1.zip" "content"
+  )
+
+  (
+    cd "$pod_dir"
+    zip -X -q -r "$target_zip" .
+  )
+}
+
+write_payment_gz_pod() {
+  local target_zip="$1"
+  local pod_dir="$WORK_DIR/payment-gz-pod"
+  mkdir -p "$pod_dir/logs" "$pod_dir/archives"
+
+  local plain_log="$pod_dir/logs/payment.log"
+  : > "$plain_log"
+  for i in $(seq 1 4000); do
+    local sec
+    sec="$(printf '%02d' $((i % 60)))"
+    local ms
+    ms="$(printf '%03d' $((i % 1000)))"
+    local level="INFO"
+    local msg="auth ok"
+    if (( i % 173 == 0 )); then
+      level="ERROR"
+      msg="dial tcp 10.31.8.17:5432: connect: connection refused"
+    elif (( i % 83 == 0 )); then
+      level="WARN"
+      msg="retry storm detected"
+    fi
+    printf "2026-02-13T09:16:%s.%sZ %-5s namespace=prod pod=payment-gz-4ac1 container=app service=payment traceId=gamma-trace-0001 spanId=%08x message=\"%s\"\n" \
+      "$sec" "$ms" "$level" "$i" "$msg" >> "$plain_log"
+  done
+  gzip -c "$plain_log" > "$pod_dir/logs/payment.log.gz"
+  rm -f "$plain_log"
+
+  # A gzip file that is NOT an archive (should become a single decompressed file).
+  printf "2026-02-13T09:16:23.999Z INFO  type=diagnostic traceId=gamma-trace-0001 message=\"plain gzip payload\"\n" > "$pod_dir/archives/diag.txt"
+  gzip -c "$pod_dir/archives/diag.txt" > "$pod_dir/archives/diag.txt.gz"
+  rm -f "$pod_dir/archives/diag.txt"
+
+  (
+    cd "$pod_dir"
+    zip -X -q -r "$target_zip" .
+  )
+}
+
 build_alpha_archive() {
   local alpha_root="$WORK_DIR/alpha-root"
   mkdir -p "$alpha_root/namespace-prod" "$alpha_root/cluster"
@@ -234,23 +359,56 @@ LOG
   )
 }
 
+build_gamma_archive() {
+  local gamma_root="$WORK_DIR/gamma-root"
+  mkdir -p "$gamma_root/namespace-prod" "$gamma_root/cluster"
+
+  write_checkout_gz_pod "$gamma_root/namespace-prod/checkout-pod-gz.zip"
+  write_payment_gz_pod "$gamma_root/namespace-prod/payment-pod-gz.zip"
+
+  # Cluster-wide events as plain .gz (single-file gzip).
+  local events_dir="$WORK_DIR/gamma-events-stage"
+  rm -rf "$events_dir"
+  mkdir -p "$events_dir"
+  cat > "$events_dir/kube-events.log" <<'LOG'
+2026-02-13T09:15:20.010Z namespace=prod type=Warning reason=BackOff pod=checkout-gz-7f9d message="Back-off restarting failed container"
+2026-02-13T09:16:23.980Z namespace=prod type=Warning reason=Unhealthy pod=payment-gz-4ac1 message="Readiness probe failed"
+LOG
+  gzip -c "$events_dir/kube-events.log" > "$gamma_root/cluster/kube-events.log.gz"
+
+  cat > "$gamma_root/README.txt" <<'LOG'
+incident-gamma-2026-02-13-nested-gz
+This sample includes nested zip -> zip -> zip.gz -> zip -> *.log.gz/*.json.gz and plain *.log.gz files.
+Use it to verify recursive extraction of nested zip + gzip single-file payloads.
+LOG
+
+  (
+    cd "$gamma_root"
+    zip -X -q -r "$OUT_DIR/incident-gamma-2026-02-13-nested-gz.zip" .
+  )
+}
+
 build_alpha_archive
 build_beta_archive
+build_gamma_archive
 
 cat > "$OUT_DIR/search-hints.json" <<'JSON'
 {
   "queries": [
     "PAYMENT_TIMEOUT",
     "DB_CONN_REFUSED",
+    "retry storm",
     "KafkaOffsetLag",
     "INVENTORY_STALE",
     "REDIS_TIMEOUT",
     "beta-trace-1002",
-    "alpha-trace-0001"
+    "alpha-trace-0001",
+    "gamma-trace-0001"
   ],
   "archives": [
     "incident-alpha-2026-02-12.zip",
-    "incident-beta-2026-02-12.zip"
+    "incident-beta-2026-02-12.zip",
+    "incident-gamma-2026-02-13-nested-gz.zip"
   ]
 }
 JSON

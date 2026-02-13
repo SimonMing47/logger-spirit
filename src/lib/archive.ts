@@ -186,7 +186,7 @@ function parseArchiveEntries(fileName: string, bytes: Uint8Array): ArchiveEntry[
     }));
   }
 
-  if (isTarGzFile(shortName) || hasGzipSignature(bytes)) {
+  if (isTarGzFile(shortName)) {
     const tarBytes = gunzipSync(bytes);
     return parseTarEntries(tarBytes);
   }
@@ -214,6 +214,38 @@ function walkArchive(
       textLike: isLikelyText(bytes, finalPath),
     });
     return;
+  }
+
+  const shortName = getBaseName(fileName);
+  const looksLikeGzip = hasGzipSignature(bytes);
+
+  // Support plain .gz (single-file gzip) nested in archives: decompress in-place and continue
+  // recursively only when the decompressed payload itself looks like an archive (zip/tar/gzip).
+  if (looksLikeGzip && !isTarGzFile(shortName)) {
+    try {
+      const unzipped = gunzipSync(bytes);
+      const unwrappedPath = basePath || stripArchiveExtension(fileName);
+
+      const payloadIsArchive =
+        hasZipSignature(unzipped) || hasTarSignature(unzipped) || hasGzipSignature(unzipped);
+
+      if (payloadIsArchive) {
+        const nextBase = stripArchiveExtension(unwrappedPath);
+        const innerName = stripArchiveExtension(fileName);
+        walkArchive(innerName, unzipped, nextBase, depth + 1, output);
+        return;
+      }
+
+      output.push({
+        path: unwrappedPath,
+        size: unzipped.length,
+        bytes: unzipped,
+        textLike: isLikelyText(unzipped, unwrappedPath),
+      });
+      return;
+    } catch {
+      // Fall through: treat as an unsupported archive or store raw bytes.
+    }
   }
 
   const entries = parseArchiveEntries(fileName, bytes);
