@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasBoard } from "@/components/canvas-board";
+import { VirtualList } from "@/components/virtual-list";
 import { extractArchiveRecursively } from "@/lib/archive";
 import {
   APP_DATA_DIR,
@@ -159,6 +160,8 @@ const DEFAULT_CANVAS: CanvasState = {
   activeColor: "#3568ff",
   strokeWidth: 2,
 };
+
+const CANVAS_HISTORY_LIMIT = 120;
 
 type ThemeMode = "sky" | "graphite" | "forest";
 
@@ -373,6 +376,18 @@ function parseLogLineTimestamp(line: string): number | undefined {
     }
   }
 
+  const plainMatch = line.match(
+    /(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})([.,]\d{3,6})?/,
+  );
+  if (plainMatch) {
+    const [, date, time, fractionRaw] = plainMatch;
+    const fraction = fractionRaw ? fractionRaw.replace(",", ".") : "";
+    const parsed = Date.parse(`${date}T${time}${fraction}`);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
   const nginxMatch = line.match(
     /\[(\d{1,2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}:\d{2}:\d{2}) ([+-]\d{4})\]/,
   );
@@ -535,6 +550,9 @@ export function LoggerSpiritApp() {
   const [contextResult, setContextResult] = useState<SearchResult | null>(null);
   const [centerSplitRatio, setCenterSplitRatio] = useState(0.3);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
 
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -557,6 +575,10 @@ export function LoggerSpiritApp() {
   const [createWorkspaceName, setCreateWorkspaceName] = useState("线上问题-2026-02");
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [canvasDraft, setCanvasDraft] = useState<CanvasState>(DEFAULT_CANVAS);
+  const [canvasHistoryState, setCanvasHistoryState] = useState({
+    canUndo: false,
+    canRedo: false,
+  });
   const [notesColor, setNotesColor] = useState("#1f2b4d");
   const [notesFontSize, setNotesFontSize] = useState("3");
   const [notesMentionQuery, setNotesMentionQuery] = useState("");
@@ -574,17 +596,27 @@ export function LoggerSpiritApp() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const notesEditorRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const treeFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const commandLastFocusRef = useRef<HTMLElement | null>(null);
 
   const saveTimerRef = useRef<number | null>(null);
   const pendingManifestRef = useRef<WorkspaceManifest | null>(null);
   const canvasSaveTimerRef = useRef<number | null>(null);
   const canvasDirtyRef = useRef(false);
   const canvasDraftRef = useRef<CanvasState>(DEFAULT_CANVAS);
+  const canvasHistoryRef = useRef<{
+    workspaceId: string;
+    past: CanvasState[];
+    future: CanvasState[];
+  }>({ workspaceId: "", past: [], future: [] });
 
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const rightPaneRef = useRef<HTMLDivElement | null>(null);
   const searchInsightsRef = useRef<HTMLDivElement | null>(null);
   const centerSplitRef = useRef<HTMLDivElement | null>(null);
+  const centerSplitBackupRef = useRef<number | null>(null);
 
   const verticalResizeRef = useRef<ResizeSession | null>(null);
   const horizontalResizeRef = useRef<HorizontalResizeSession | null>(null);
@@ -862,6 +894,8 @@ export function LoggerSpiritApp() {
       canvasDraftRef.current = DEFAULT_CANVAS;
       canvasDirtyRef.current = false;
       setCanvasDraft(DEFAULT_CANVAS);
+      canvasHistoryRef.current = { workspaceId: "", past: [], future: [] };
+      setCanvasHistoryState({ canUndo: false, canRedo: false });
       return;
     }
 
@@ -869,6 +903,8 @@ export function LoggerSpiritApp() {
     canvasDraftRef.current = normalized;
     canvasDirtyRef.current = false;
     setCanvasDraft(normalized);
+    canvasHistoryRef.current = { workspaceId: currentWorkspace.id, past: [], future: [] };
+    setCanvasHistoryState({ canUndo: false, canRedo: false });
   }, [activeWorkspaceIdentity]);
 
   useEffect(() => {
@@ -1846,9 +1882,36 @@ export function LoggerSpiritApp() {
   }, [activeTab, activeWorkspace, directoryHandle, viewerCache]);
 
   const updateCanvasDraft = useCallback(
-    (updater: (current: CanvasState) => CanvasState) => {
+    (
+      updater: (current: CanvasState) => CanvasState,
+      options?: { skipHistory?: boolean },
+    ) => {
       setCanvasDraft((current) => {
         const next = normalizeCanvasState(updater(current));
+
+        if (!options?.skipHistory) {
+          const workspaceId = activeWorkspaceIdRef.current || activeWorkspaceRef.current?.id || "";
+          if (workspaceId) {
+            const history = canvasHistoryRef.current;
+            if (history.workspaceId !== workspaceId) {
+              history.workspaceId = workspaceId;
+              history.past = [];
+              history.future = [];
+            }
+
+            history.past.push(current);
+            if (history.past.length > CANVAS_HISTORY_LIMIT) {
+              history.past.shift();
+            }
+            history.future = [];
+
+            setCanvasHistoryState({
+              canUndo: history.past.length > 0,
+              canRedo: false,
+            });
+          }
+        }
+
         canvasDraftRef.current = next;
         return next;
       });
@@ -1864,6 +1927,131 @@ export function LoggerSpiritApp() {
     },
     [updateCanvasDraft],
   );
+
+  const undoCanvas = useCallback(() => {
+    const workspaceId = activeWorkspaceIdRef.current || activeWorkspaceRef.current?.id || "";
+    if (!workspaceId) {
+      return;
+    }
+
+    const history = canvasHistoryRef.current;
+    if (history.workspaceId !== workspaceId || history.past.length === 0) {
+      return;
+    }
+
+    const previous = history.past.pop();
+    if (!previous) {
+      return;
+    }
+
+    history.future.unshift(canvasDraftRef.current);
+    if (history.future.length > CANVAS_HISTORY_LIMIT) {
+      history.future.pop();
+    }
+
+    setCanvasHistoryState({
+      canUndo: history.past.length > 0,
+      canRedo: history.future.length > 0,
+    });
+
+    updateCanvasDraft(() => previous, { skipHistory: true });
+  }, [updateCanvasDraft]);
+
+  const redoCanvas = useCallback(() => {
+    const workspaceId = activeWorkspaceIdRef.current || activeWorkspaceRef.current?.id || "";
+    if (!workspaceId) {
+      return;
+    }
+
+    const history = canvasHistoryRef.current;
+    if (history.workspaceId !== workspaceId || history.future.length === 0) {
+      return;
+    }
+
+    const next = history.future.shift();
+    if (!next) {
+      return;
+    }
+
+    history.past.push(canvasDraftRef.current);
+    if (history.past.length > CANVAS_HISTORY_LIMIT) {
+      history.past.shift();
+    }
+
+    setCanvasHistoryState({
+      canUndo: history.past.length > 0,
+      canRedo: history.future.length > 0,
+    });
+
+    updateCanvasDraft(() => next, { skipHistory: true });
+  }, [updateCanvasDraft]);
+
+  const resetCanvasView = useCallback(() => {
+    updateCanvasDraft((canvas) => ({
+      ...canvas,
+      zoom: 1,
+      offsetX: 20,
+      offsetY: 20,
+    }));
+  }, [updateCanvasDraft]);
+
+  const openCommandPalette = useCallback(() => {
+    commandLastFocusRef.current = document.activeElement as HTMLElement | null;
+    setCommandPaletteQuery("");
+    setCommandPaletteIndex(0);
+    setCommandPaletteOpen(true);
+  }, [setCommandPaletteIndex, setCommandPaletteOpen, setCommandPaletteQuery]);
+
+  const closeCommandPalette = useCallback((options?: { restoreFocus?: boolean }) => {
+    setCommandPaletteOpen(false);
+    setCommandPaletteQuery("");
+    setCommandPaletteIndex(0);
+
+    if (options?.restoreFocus ?? true) {
+      const last = commandLastFocusRef.current;
+      window.setTimeout(() => {
+        if (last && typeof last.focus === "function") {
+          last.focus();
+        }
+      }, 0);
+    }
+  }, [setCommandPaletteIndex, setCommandPaletteOpen, setCommandPaletteQuery]);
+
+  useEffect(() => {
+    if (!clientReady) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (commandPaletteOpen) {
+          closeCommandPalette();
+        } else {
+          openCommandPalette();
+        }
+        return;
+      }
+
+      if (commandPaletteOpen && event.key === "Escape") {
+        event.preventDefault();
+        closeCommandPalette();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clientReady, closeCommandPalette, commandPaletteOpen, openCommandPalette]);
+
+  useEffect(() => {
+    if (!commandPaletteOpen) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      commandInputRef.current?.focus();
+    }, 0);
+  }, [commandPaletteOpen]);
 
   const pinSearchResultToCanvas = useCallback(
     (result: SearchResult) => {
@@ -2424,6 +2612,43 @@ export function LoggerSpiritApp() {
   );
 
   useEffect(() => {
+    if (!showSearchInsights) {
+      return;
+    }
+
+    const containerHeight = searchInsightsRef.current?.clientHeight ?? 0;
+    if (containerHeight <= 0) {
+      return;
+    }
+
+    const maxHeight = Math.max(140, containerHeight - 130);
+    setSearchResultsHeight((current) => {
+      const next = clamp(current, 110, maxHeight);
+      return next === current ? current : next;
+    });
+  }, [centerSplitRatio, showAdvancedSearch, showSearchInsights]);
+
+  const toggleSearchInsights = useCallback(() => {
+    setShowSearchInsights((current) => {
+      const next = !current;
+
+      if (!next) {
+        centerSplitBackupRef.current = centerSplitRatio;
+        setCenterSplitRatio((ratio) => clamp(Math.min(ratio, 0.12), 0.08, 0.7));
+        return next;
+      }
+
+      const backup = centerSplitBackupRef.current;
+      centerSplitBackupRef.current = null;
+      if (typeof backup === "number") {
+        setCenterSplitRatio(clamp(backup, 0.15, 0.7));
+      }
+
+      return next;
+    });
+  }, [centerSplitRatio]);
+
+  useEffect(() => {
     if (!layoutRef.current || typeof ResizeObserver === "undefined") {
       return;
     }
@@ -2636,6 +2861,172 @@ export function LoggerSpiritApp() {
   const lineOverflow =
     activeViewer?.totalLines !== undefined &&
     activeViewer.totalLines > (activeViewer.lines.length ?? 0);
+
+  type CommandEntry = {
+    id: string;
+    title: string;
+    hint?: string;
+    shortcut?: string;
+    enabled: boolean;
+    run: () => void;
+  };
+
+  const commandEntries: CommandEntry[] = [
+    {
+      id: "focus-search",
+      title: "聚焦跨文件搜索",
+      hint: "中栏",
+      enabled: true,
+      run: () => searchInputRef.current?.focus(),
+    },
+    {
+      id: "toggle-search-results",
+      title: showSearchInsights ? "隐藏搜索结果" : "显示搜索结果",
+      hint: "中栏",
+      enabled: true,
+      run: () => toggleSearchInsights(),
+    },
+    {
+      id: "toggle-advanced-search",
+      title: showAdvancedSearch ? "收起高级搜索" : "展开高级搜索",
+      hint: "中栏",
+      enabled: true,
+      run: () => setShowAdvancedSearch((current) => !current),
+    },
+    {
+      id: "clear-search",
+      title: "清空搜索结果",
+      hint: "中栏",
+      enabled: searchResults.length > 0 || hasSearchInput,
+      run: () => clearSearch(),
+    },
+    {
+      id: "focus-tree-filter",
+      title: "聚焦日志树过滤",
+      hint: "左栏",
+      enabled: true,
+      run: () => {
+        setLeftCollapsed(false);
+        window.setTimeout(() => treeFilterInputRef.current?.focus(), 0);
+      },
+    },
+    {
+      id: "tree-only-matched",
+      title: treeOnlyMatched ? "日志树：显示全部文件" : "日志树：只看命中文件",
+      hint: "左栏",
+      enabled: searchMatchedFiles.size > 0,
+      run: () => setTreeOnlyMatched((current) => !current),
+    },
+    {
+      id: "tree-expand-all",
+      title: "日志树：全部展开",
+      hint: "左栏",
+      enabled: Boolean(activeWorkspace),
+      run: () => expandAllNodes(),
+    },
+    {
+      id: "tree-collapse-all",
+      title: "日志树：全部收起",
+      hint: "左栏",
+      enabled: Boolean(activeWorkspace),
+      run: () => collapseAllNodes(),
+    },
+    {
+      id: "focus-canvas",
+      title: "聚焦线索画板",
+      hint: "右栏",
+      enabled: true,
+      run: () => {
+        setRightCollapsed(false);
+        window.setTimeout(() => {
+          document.querySelector<HTMLDivElement>(".canvas-viewport")?.focus();
+        }, 0);
+      },
+    },
+    {
+      id: "canvas-undo",
+      title: "画板：撤销",
+      shortcut: "Ctrl/⌘+Z",
+      enabled: canvasHistoryState.canUndo,
+      run: () => undoCanvas(),
+    },
+    {
+      id: "canvas-redo",
+      title: "画板：重做",
+      shortcut: "Ctrl/⌘+Shift+Z",
+      enabled: canvasHistoryState.canRedo,
+      run: () => redoCanvas(),
+    },
+    {
+      id: "canvas-reset-view",
+      title: "画板：重置视图",
+      enabled: true,
+      run: () => resetCanvasView(),
+    },
+    {
+      id: "theme-sky",
+      title: "主题：云蓝",
+      enabled: theme !== "sky",
+      run: () => setTheme("sky"),
+    },
+    {
+      id: "theme-graphite",
+      title: "主题：石墨",
+      enabled: theme !== "graphite",
+      run: () => setTheme("graphite"),
+    },
+    {
+      id: "theme-forest",
+      title: "主题：森绿",
+      enabled: theme !== "forest",
+      run: () => setTheme("forest"),
+    },
+    {
+      id: "pick-storage",
+      title: "选择主存储目录",
+      enabled: true,
+      run: () => void handlePickDirectory(),
+    },
+    {
+      id: "create-workspace",
+      title: "新增日志空间",
+      hint: "左栏",
+      enabled: Boolean(directoryHandle),
+      run: () => openCreateWorkspaceModal(),
+    },
+  ];
+
+  const normalizedCommandQuery = commandPaletteQuery.trim().toLocaleLowerCase();
+  const commandTokens = normalizedCommandQuery
+    ? normalizedCommandQuery.split(/\s+/).filter(Boolean)
+    : [];
+
+  const filteredCommandEntries =
+    commandTokens.length === 0
+      ? commandEntries
+      : commandEntries.filter((command) => {
+          const haystack = `${command.title} ${command.hint ?? ""} ${command.id}`
+            .toLocaleLowerCase()
+            .trim();
+          return commandTokens.every((token) => haystack.includes(token));
+        });
+
+  const safeCommandIndex =
+    filteredCommandEntries.length === 0
+      ? 0
+      : clamp(commandPaletteIndex, 0, filteredCommandEntries.length - 1);
+
+  const runCommandEntry = useCallback(
+    (command: CommandEntry) => {
+      if (!command.enabled) {
+        return;
+      }
+
+      closeCommandPalette({ restoreFocus: false });
+      window.setTimeout(() => command.run(), 0);
+    },
+    [closeCommandPalette],
+  );
 
   return (
     <div className="logger-shell">
@@ -2862,13 +3253,14 @@ export function LoggerSpiritApp() {
                     </div>
                   </div>
 
-                  <div className="tree-filter-row">
-                    <input
-                      className="tree-filter-input"
-                      value={treeFilter}
-                      placeholder="快速过滤文件/目录"
-                      onChange={(event) => setTreeFilter(event.target.value)}
-                    />
+	                  <div className="tree-filter-row">
+	                    <input
+	                      className="tree-filter-input"
+	                      ref={treeFilterInputRef}
+	                      value={treeFilter}
+	                      placeholder="快速过滤文件/目录"
+	                      onChange={(event) => setTreeFilter(event.target.value)}
+	                    />
                     {treeFilter.trim() ? (
                       <button
                         type="button"
@@ -2981,13 +3373,14 @@ export function LoggerSpiritApp() {
                     style={{ flex: `0 0 ${Math.round(centerSplitRatio * 100)}%` }}
                   >
                     <div className="search-row">
-                      <input
-                        className="search-input"
-                        value={searchQuery}
-                        placeholder="跨文件搜索关键字，例如 timeout / error code"
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
+	                      <input
+	                        className="search-input"
+	                        ref={searchInputRef}
+	                        value={searchQuery}
+	                        placeholder="跨文件搜索关键字，例如 timeout / error code"
+	                        onChange={(event) => setSearchQuery(event.target.value)}
+	                        onKeyDown={(event) => {
+	                          if (event.key === "Enter") {
                             executeSearch();
                           }
                         }}
@@ -3013,7 +3406,7 @@ export function LoggerSpiritApp() {
                       <button
                         type="button"
                         className="ghost-button"
-                        onClick={() => setShowSearchInsights((current) => !current)}
+                        onClick={toggleSearchInsights}
                       >
                         {showSearchInsights ? "隐藏结果" : "显示结果"}
                       </button>
@@ -3310,98 +3703,120 @@ export function LoggerSpiritApp() {
                       </div>
                     ) : null}
 
-                    {showSearchInsights ? (
-                      <div className="search-insights" ref={searchInsightsRef}>
-                        <div
-                          className="search-results compact"
-                          style={{ height: searchResultsHeight }}
-                        >
-                          {searchResults.map((result) => {
-                            const resultLogRef = logRefKey(
-                              result.rootId,
-                              result.filePath,
-                              result.line,
-                            );
-                            const isActive = activeLogRef === resultLogRef;
+	                    {showSearchInsights ? (
+	                      <div className="search-insights" ref={searchInsightsRef}>
+	                        {searchResults.length === 0 ? (
+	                          <div
+	                            className="search-results compact"
+	                            style={{ height: searchResultsHeight }}
+	                          >
+	                            <p className="muted">暂无命中结果。</p>
+	                          </div>
+	                        ) : (
+	                          <VirtualList
+	                            className="search-results compact"
+	                            style={{ height: searchResultsHeight }}
+	                            itemCount={searchResults.length}
+	                            itemHeight={92}
+	                            overscan={10}
+	                            renderRow={(index, rowStyle) => {
+	                              const result = searchResults[index];
+	                              if (!result) {
+	                                return null;
+	                              }
+	                              const resultLogRef = logRefKey(
+	                                result.rootId,
+	                                result.filePath,
+	                                result.line,
+	                              );
+	                              const isActive = activeLogRef === resultLogRef;
 
-                            return (
-                              <div
-                                key={result.id}
-                                className={`search-item compact ${isActive ? "active" : ""}`}
-                                draggable
-                                onDragStart={(event) => {
-                                  event.dataTransfer.setData(
-                                    "application/logger-snippet",
-                                    JSON.stringify({
-                                      text: `[${result.sourceName}] ${result.filePath}:${result.line} ${result.preview}`,
-                                      link: {
-                                        workspaceId: activeWorkspace?.id,
-                                        rootId: result.rootId,
-                                        sourceName: result.sourceName,
-                                        filePath: result.filePath,
-                                        line: result.line,
-                                      },
-                                      timestamp: result.timestamp,
-                                    }),
-                                  );
-                                }}
-                              >
-                                <div className="search-item-head">
-                                  <button
-                                    type="button"
-                                    className="search-item-open compact"
-                                    title={`${result.sourceName} ${result.filePath}:${result.line}\n${result.preview}`}
-                                    onClick={() => {
-                                      openLogTab({
-                                        rootId: result.rootId,
-                                        filePath: result.filePath,
-                                        line: result.line,
-                                        sourceName: result.sourceName,
-                                      });
-                                    }}
-                                  >
-                                    <strong>{result.sourceName}</strong>
-                                    <span>
-                                      {result.filePath}:{result.line}
-                                    </span>
-                                    <p className="search-preview">{result.preview}</p>
-                                  </button>
+	                              return (
+	                                <div
+	                                  style={rowStyle}
+	                                  className={`search-item compact ${isActive ? "active" : ""}`}
+	                                  draggable
+	                                  onDragStart={(event) => {
+	                                    const payload = JSON.stringify({
+	                                      text: `[${result.sourceName}] ${result.filePath}:${result.line} ${result.preview}`,
+	                                      link: {
+	                                        workspaceId: activeWorkspace?.id,
+	                                        rootId: result.rootId,
+	                                        sourceName: result.sourceName,
+	                                        filePath: result.filePath,
+	                                        line: result.line,
+	                                      },
+	                                      timestamp: result.timestamp,
+	                                    });
+	                                    event.dataTransfer.effectAllowed = "copy";
+	                                    event.dataTransfer.setData(
+	                                      "application/logger-snippet",
+	                                      payload,
+	                                    );
+	                                    event.dataTransfer.setData("application/json", payload);
+	                                    event.dataTransfer.setData("text/plain", payload);
+	                                  }}
+	                                >
+	                                  <div className="search-item-head">
+	                                    <button
+	                                      type="button"
+	                                      className="search-item-open compact"
+	                                      title={`${result.sourceName} ${result.filePath}:${result.line}\n${result.preview}`}
+	                                      onClick={() => {
+	                                        openLogTab({
+	                                          rootId: result.rootId,
+	                                          filePath: result.filePath,
+	                                          line: result.line,
+	                                          sourceName: result.sourceName,
+	                                        });
+	                                      }}
+	                                    >
+	                                      <strong>{result.sourceName}</strong>
+	                                      <span>
+	                                        {result.filePath}:{result.line}
+	                                      </span>
+	                                      <p className="search-preview">{result.preview}</p>
+	                                    </button>
 
-                                  <div className="search-item-actions">
-                                    <button
-                                      type="button"
-                                      className="ghost-button tiny"
-                                      onClick={() => setContextResult(result)}
-                                    >
-                                      上下文
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="ghost-button tiny"
-                                      onClick={() => pinSearchResultToCanvas(result)}
-                                    >
-                                      固定
-                                    </button>
-                                  </div>
-                                </div>
+	                                    <div className="search-item-actions">
+	                                      <button
+	                                        type="button"
+	                                        className="ghost-button tiny"
+	                                        onClick={() => setContextResult(result)}
+	                                      >
+	                                        上下文
+	                                      </button>
+	                                      <button
+	                                        type="button"
+	                                        className="ghost-button tiny"
+	                                        onClick={() => pinSearchResultToCanvas(result)}
+	                                      >
+	                                        固定
+	                                      </button>
+	                                    </div>
+	                                  </div>
 
-                                <div className="search-item-tags">
-                                  {result.level ? (
-                                    <span className="tag-chip">{result.level}</span>
-                                  ) : null}
-                                  {result.tags.map((tag) => (
-                                    <span key={`${result.id}-${tag}`} className="tag-chip alert">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                  {result.traceId ? (
-                                    <span className="tag-chip">trace:{result.traceId}</span>
-                                  ) : null}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+	                                  <div className="search-item-tags">
+	                                    {result.level ? (
+	                                      <span className="tag-chip">{result.level}</span>
+	                                    ) : null}
+	                                    {result.tags.map((tag) => (
+	                                      <span
+	                                        key={`${result.id}-${tag}`}
+	                                        className="tag-chip alert"
+	                                      >
+	                                        {tag}
+	                                      </span>
+	                                    ))}
+	                                    {result.traceId ? (
+	                                      <span className="tag-chip">trace:{result.traceId}</span>
+	                                    ) : null}
+	                                  </div>
+	                                </div>
+	                              );
+	                            }}
+	                          />
+	                        )}
 
                         <div
                           className="horizontal-resizer search-results-resizer"
@@ -3521,76 +3936,83 @@ export function LoggerSpiritApp() {
 
                   {viewerLoading ? (
                     <p className="muted">读取中...</p>
-                  ) : activeViewer?.binary ? (
-                    <p className="muted">当前文件为二进制或不可读文本，暂不支持预览。</p>
-                  ) : activeViewer?.lines.length ? (
-                    <div
-                      className="viewer-content"
-                      onMouseUp={() => {
-                        const text = window.getSelection()?.toString().trim() ?? "";
-                        if (text) {
-                          setSelectedSnippet(text.slice(0, 1200));
-                        }
-                      }}
-                    >
-                      {activeViewer.lines.map((line, index) => {
-                        const lineNumber = index + 1;
-                        const lineRef = logRefKey(
-                          activeViewer.rootId,
-                          activeViewer.filePath,
-                          lineNumber,
-                        );
-                        const isCurrent = activeLine === lineNumber;
-                        const isLinked = linkedLogRefSet.has(lineRef);
-                        const isActiveLinked = activeLogRef === lineRef;
+	                  ) : activeViewer?.binary ? (
+	                    <p className="muted">当前文件为二进制或不可读文本，暂不支持预览。</p>
+	                  ) : activeViewer?.lines.length ? (
+	                    <VirtualList
+	                      className="viewer-content"
+	                      itemCount={activeViewer.lines.length}
+	                      itemHeight={28}
+	                      overscan={40}
+	                      onMouseUp={() => {
+	                        const text = window.getSelection()?.toString().trim() ?? "";
+	                        if (text) {
+	                          setSelectedSnippet(text.slice(0, 1200));
+	                        }
+	                      }}
+	                      renderRow={(index) => {
+	                        const line = activeViewer.lines[index] ?? "";
+	                        const lineNumber = index + 1;
+	                        const lineRef = logRefKey(
+	                          activeViewer.rootId,
+	                          activeViewer.filePath,
+	                          lineNumber,
+	                        );
+	                        const isCurrent = activeLine === lineNumber;
+	                        const isLinked = linkedLogRefSet.has(lineRef);
+	                        const isActiveLinked = activeLogRef === lineRef;
 
-                        return (
-                          <div
-                            key={`${activeViewer.filePath}-${lineNumber}`}
-                            className={`log-line ${isCurrent ? "log-active" : ""} ${isLinked ? "log-linked" : ""} ${isActiveLinked ? "log-link-active" : ""}`}
-                            onClick={() => {
-                              setActiveLine(lineNumber);
-                              setActiveLogRef(lineRef);
-                            }}
-                          >
-                            <span className="line-meta">
-                              <button
-                                type="button"
-                                className="line-drag-handle"
-                                draggable
-                                title="拖动到画板"
-                                onClick={(event) => event.stopPropagation()}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onDragStart={(event) => {
-                                  const timestamp = parseLogLineTimestamp(line);
-                                  event.dataTransfer.setData(
-                                    "application/logger-snippet",
-                                    JSON.stringify({
-                                      text: `[${activeViewer.viewerFileName}] ${lineNumber}: ${line}`,
-                                      link: {
-                                        workspaceId: activeWorkspace?.id,
-                                        rootId: activeViewer.rootId,
-                                        sourceName: activeViewer.sourceName,
-                                        filePath: activeViewer.filePath,
-                                        line: lineNumber,
-                                      },
-                                      timestamp,
-                                    }),
-                                  );
-                                }}
-                              >
-                                ⋮⋮
-                              </button>
-                              <span className="line-no">{lineNumber}</span>
-                            </span>
-                            <span className="line-text">{line || " "}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="muted">从左侧树或搜索结果中选择文件。</p>
-                  )}
+	                        return (
+	                          <div
+	                            style={{ height: "100%" }}
+	                            className={`log-line ${isCurrent ? "log-active" : ""} ${isLinked ? "log-linked" : ""} ${isActiveLinked ? "log-link-active" : ""}`}
+	                            onClick={() => {
+	                              setActiveLine(lineNumber);
+	                              setActiveLogRef(lineRef);
+	                            }}
+	                          >
+	                            <span className="line-meta">
+	                              <button
+	                                type="button"
+	                                className="line-drag-handle"
+	                                draggable
+	                                title="拖动到画板"
+	                                onClick={(event) => event.stopPropagation()}
+	                                onMouseDown={(event) => event.stopPropagation()}
+	                                onDragStart={(event) => {
+	                                  const timestamp = parseLogLineTimestamp(line);
+	                                  const payload = JSON.stringify({
+	                                    text: `[${activeViewer.viewerFileName}] ${lineNumber}: ${line}`,
+	                                    link: {
+	                                      workspaceId: activeWorkspace?.id,
+	                                      rootId: activeViewer.rootId,
+	                                      sourceName: activeViewer.sourceName,
+	                                      filePath: activeViewer.filePath,
+	                                      line: lineNumber,
+	                                    },
+	                                    timestamp,
+	                                  });
+	                                  event.dataTransfer.effectAllowed = "copy";
+	                                  event.dataTransfer.setData(
+	                                    "application/logger-snippet",
+	                                    payload,
+	                                  );
+	                                  event.dataTransfer.setData("application/json", payload);
+	                                  event.dataTransfer.setData("text/plain", payload);
+	                                }}
+	                              >
+	                                ⋮⋮
+	                              </button>
+	                              <span className="line-no">{lineNumber}</span>
+	                            </span>
+	                            <span className="line-text">{line || " "}</span>
+	                          </div>
+	                        );
+	                      }}
+	                    />
+	                  ) : (
+	                    <p className="muted">从左侧树或搜索结果中选择文件。</p>
+	                  )}
 
                   {lineOverflow ? (
                     <p className="muted">
@@ -3787,6 +4209,10 @@ export function LoggerSpiritApp() {
                       activeLogRef={activeLogRef}
                       onOpenLinkedLog={handleOpenLinkedLog}
                       onChange={handleCanvasChange}
+                      canUndo={canvasHistoryState.canUndo}
+                      canRedo={canvasHistoryState.canRedo}
+                      onUndo={undoCanvas}
+                      onRedo={redoCanvas}
                     />
                   </section>
                 </div>
@@ -3941,6 +4367,108 @@ export function LoggerSpiritApp() {
                 确认删除
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {commandPaletteOpen ? (
+        <div
+          className="modal-backdrop"
+          onClick={(event) => {
+            if (event.currentTarget === event.target) {
+              closeCommandPalette();
+            }
+          }}
+        >
+          <div className="modal-card command-modal">
+            <div className="modal-head">
+              <h3>命令面板</h3>
+              <button
+                type="button"
+                className="ghost-button tiny"
+                onClick={() => closeCommandPalette()}
+              >
+                关闭
+              </button>
+            </div>
+
+            <input
+              ref={commandInputRef}
+              className="command-input"
+              value={commandPaletteQuery}
+              placeholder="输入命令，例如：搜索 / 画板 撤销 / 日志树 展开"
+              onChange={(event) => {
+                setCommandPaletteQuery(event.target.value);
+                setCommandPaletteIndex(0);
+              }}
+              onKeyDown={(event) => {
+                const key = event.key;
+
+                if (key === "Escape") {
+                  event.preventDefault();
+                  closeCommandPalette();
+                  return;
+                }
+
+                if (key === "ArrowDown") {
+                  event.preventDefault();
+                  if (filteredCommandEntries.length === 0) {
+                    return;
+                  }
+                  setCommandPaletteIndex((current) =>
+                    current + 1 >= filteredCommandEntries.length ? 0 : current + 1,
+                  );
+                  return;
+                }
+
+                if (key === "ArrowUp") {
+                  event.preventDefault();
+                  if (filteredCommandEntries.length === 0) {
+                    return;
+                  }
+                  setCommandPaletteIndex((current) =>
+                    current - 1 < 0 ? filteredCommandEntries.length - 1 : current - 1,
+                  );
+                  return;
+                }
+
+                if (key === "Enter") {
+                  event.preventDefault();
+                  const command = filteredCommandEntries[safeCommandIndex];
+                  if (command) {
+                    runCommandEntry(command);
+                  }
+                }
+              }}
+            />
+
+            <div className="command-list">
+              {filteredCommandEntries.length === 0 ? (
+                <p className="muted">没有匹配的命令。</p>
+              ) : (
+                filteredCommandEntries.map((command, index) => (
+                  <button
+                    type="button"
+                    key={command.id}
+                    className={`command-item ${index === safeCommandIndex ? "active" : ""}`}
+                    disabled={!command.enabled}
+                    onMouseEnter={() => setCommandPaletteIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => runCommandEntry(command)}
+                  >
+                    <div className="command-item-main">
+                      <strong>{command.title}</strong>
+                      {command.hint ? <span className="muted">{command.hint}</span> : null}
+                    </div>
+                    {command.shortcut ? (
+                      <span className="command-shortcut">{command.shortcut}</span>
+                    ) : null}
+                  </button>
+                ))
+              )}
+            </div>
+
+            <p className="muted command-footnote">Enter 执行 · ↑↓ 选择 · Esc 关闭 · Cmd/Ctrl+K 打开</p>
           </div>
         </div>
       ) : null}

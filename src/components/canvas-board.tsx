@@ -15,6 +15,10 @@ type CanvasBoardProps = {
   onChange: (next: CanvasState) => void;
   activeLogRef?: string | null;
   onOpenLinkedLog?: (ref: LogReference) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 };
 
 type CanvasTool =
@@ -255,6 +259,10 @@ export function CanvasBoard({
   onChange,
   activeLogRef,
   onOpenLinkedLog,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: CanvasBoardProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -267,12 +275,14 @@ export function CanvasBoard({
   const [panState, setPanState] = useState<PanState | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number } | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const dragSessionRef = useRef<DragSession | null>(null);
   const valueRef = useRef(value);
+  const clipboardRef = useRef<{ items: CanvasItem[]; shapes: CanvasShape[] } | null>(null);
 
   const boardStyle = useMemo(
     () => ({
@@ -347,8 +357,48 @@ export function CanvasBoard({
       timestamp,
     });
 
+    const nextItems = [...valueRef.current.items, note];
+    const timeline = computeTimelineLayout(nextItems);
+    const renderX = timeline.xById.get(note.id) ?? note.x;
+    const itemWidth = canvasItemWidth(note);
+    const itemHeight = canvasItemHeight(note);
+
+    const viewport = viewportRef.current?.getBoundingClientRect();
+    const zoom = valueRef.current.zoom;
+
+    let nextOffsetX = valueRef.current.offsetX;
+    let nextOffsetY = valueRef.current.offsetY;
+
+    if (viewport) {
+      const worldLeft = (-valueRef.current.offsetX) / zoom;
+      const worldTop = (-valueRef.current.offsetY) / zoom;
+      const worldRight = (viewport.width - valueRef.current.offsetX) / zoom;
+      const worldBottom = (viewport.height - valueRef.current.offsetY) / zoom;
+
+      const marginWorldX = 28 / zoom;
+      const marginWorldY = 22 / zoom;
+
+      const itemLeft = renderX;
+      const itemTop = note.y;
+      const itemRight = renderX + itemWidth;
+      const itemBottom = note.y + itemHeight;
+
+      const fullyVisible =
+        itemLeft >= worldLeft + marginWorldX &&
+        itemRight <= worldRight - marginWorldX &&
+        itemTop >= worldTop + marginWorldY &&
+        itemBottom <= worldBottom - marginWorldY;
+
+      if (!fullyVisible) {
+        nextOffsetX = viewport.width / 2 - (renderX + itemWidth / 2) * zoom;
+        nextOffsetY = viewport.height / 2 - (note.y + itemHeight / 2) * zoom;
+      }
+    }
+
     patchCanvas({
-      items: [...valueRef.current.items, note],
+      items: nextItems,
+      offsetX: nextOffsetX,
+      offsetY: nextOffsetY,
     });
     selectSingle("item", note.id);
   };
@@ -709,6 +759,117 @@ export function CanvasBoard({
         return;
       }
 
+      const viewport = viewportRef.current;
+      if (!viewport || document.activeElement !== viewport) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if ((event.metaKey || event.ctrlKey) && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          onRedo?.();
+        } else {
+          onUndo?.();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && key === "y") {
+        event.preventDefault();
+        onRedo?.();
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && key === "a") {
+        if (selection && selection.itemIds.length + selection.shapeIds.length > 0) {
+          // Let browser select text when there is an active selection inside the canvas item.
+          const selectedText = window.getSelection()?.toString().trim() ?? "";
+          if (selectedText) {
+            return;
+          }
+        }
+
+        event.preventDefault();
+        const allItemIds = valueRef.current.items.map((item) => item.id);
+        const allShapeIds = valueRef.current.shapes.map((shape) => shape.id);
+        if (allItemIds.length === 0 && allShapeIds.length === 0) {
+          clearSelection();
+          return;
+        }
+        setSelection({
+          itemIds: allItemIds,
+          shapeIds: allShapeIds,
+          primary:
+            allItemIds.length > 0
+              ? { kind: "item", id: allItemIds[0] }
+              : { kind: "shape", id: allShapeIds[0] },
+        });
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && key === "c") {
+        const selectedText = window.getSelection()?.toString().trim() ?? "";
+        if (selectedText) {
+          return;
+        }
+        if (!selection) {
+          return;
+        }
+        event.preventDefault();
+        clipboardRef.current = {
+          items: valueRef.current.items.filter((item) => selection.itemIds.includes(item.id)),
+          shapes: valueRef.current.shapes.filter((shape) => selection.shapeIds.includes(shape.id)),
+        };
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && key === "v") {
+        const selectedText = window.getSelection()?.toString().trim() ?? "";
+        if (selectedText) {
+          return;
+        }
+
+        const clip = clipboardRef.current;
+        if (!clip || (clip.items.length === 0 && clip.shapes.length === 0)) {
+          return;
+        }
+
+        event.preventDefault();
+        const now = Date.now();
+        const clonedItems = clip.items.map((item, index) => ({
+          ...item,
+          id: `item-${now}-${Math.random().toString(36).slice(2, 8)}-${index}`,
+          x: item.x + 18,
+          y: item.y + 18,
+        }));
+        const clonedShapes = clip.shapes.map((shape, index) => ({
+          ...shape,
+          id: `shape-${now}-${Math.random().toString(36).slice(2, 8)}-${index}`,
+          x1: shape.x1 + 18,
+          y1: shape.y1 + 18,
+          x2: shape.x2 + 18,
+          y2: shape.y2 + 18,
+        }));
+
+        patchCanvas({
+          items: [...valueRef.current.items, ...clonedItems],
+          shapes: [...valueRef.current.shapes, ...clonedShapes],
+        });
+
+        setSelection({
+          itemIds: clonedItems.map((item) => item.id),
+          shapeIds: clonedShapes.map((shape) => shape.id),
+          primary:
+            clonedItems.length > 0
+              ? { kind: "item", id: clonedItems[0].id }
+              : { kind: "shape", id: clonedShapes[0].id },
+        });
+        setTool("select");
+        return;
+      }
+
       if (event.key === " ") {
         event.preventDefault();
         setSpacePressed(true);
@@ -723,7 +884,86 @@ export function CanvasBoard({
         setSelectionBox(null);
         setPanState(null);
         setSnapGuides(null);
+        setTool("select");
         return;
+      }
+
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        ["v", "n", "t", "l", "r", "o", "a"].includes(key)
+      ) {
+        event.preventDefault();
+        if (key === "v") {
+          setTool("select");
+        } else if (key === "n") {
+          setTool("note");
+        } else if (key === "t") {
+          setTool("text");
+        } else if (key === "l") {
+          setTool("line");
+        } else if (key === "r") {
+          setTool("rect");
+        } else if (key === "o") {
+          setTool("ellipse");
+        } else if (key === "a") {
+          setTool("arrow");
+        }
+        return;
+      }
+
+      if (!editingItemId && selection && tool === "select") {
+        const step = event.shiftKey ? 16 : 4;
+        const dx =
+          event.key === "ArrowLeft"
+            ? -step
+            : event.key === "ArrowRight"
+              ? step
+              : 0;
+        const dy =
+          event.key === "ArrowUp"
+            ? -step
+            : event.key === "ArrowDown"
+              ? step
+              : 0;
+
+        if (dx !== 0 || dy !== 0) {
+          event.preventDefault();
+
+          const selectedItems = new Set(selection.itemIds);
+          const selectedShapes = new Set(selection.shapeIds);
+
+          patchCanvas({
+            items: valueRef.current.items.map((item) => {
+              if (!selectedItems.has(item.id)) {
+                return item;
+              }
+              const width = canvasItemWidth(item);
+              const nextX =
+                typeof item.timestamp === "number"
+                  ? item.x
+                  : clamp(item.x + dx, 0, BOARD_WIDTH - width);
+              const nextY = clamp(item.y + dy, 0, BOARD_HEIGHT - 60);
+              return { ...item, x: nextX, y: nextY };
+            }),
+            shapes: valueRef.current.shapes.map((shape) => {
+              if (!selectedShapes.has(shape.id)) {
+                return shape;
+              }
+              const next = {
+                ...shape,
+                x1: clamp(shape.x1 + dx, 0, BOARD_WIDTH),
+                y1: clamp(shape.y1 + dy, 0, BOARD_HEIGHT),
+                x2: clamp(shape.x2 + dx, 0, BOARD_WIDTH),
+                y2: clamp(shape.y2 + dy, 0, BOARD_HEIGHT),
+              };
+              return next;
+            }),
+          });
+          return;
+        }
       }
 
       if (event.key !== "Delete" && event.key !== "Backspace") {
@@ -763,7 +1003,15 @@ export function CanvasBoard({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [clearSelection, editingItemId, patchCanvas, selection]);
+  }, [
+    clearSelection,
+    editingItemId,
+    onRedo,
+    onUndo,
+    patchCanvas,
+    selection,
+    tool,
+  ]);
 
   const timelineLayout = computeTimelineLayout(value.items);
 
@@ -1146,11 +1394,14 @@ export function CanvasBoard({
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    setDropActive(false);
+    viewportRef.current?.focus();
 
     const point = toWorldPoint(event.clientX, event.clientY);
 
     const rawSnippet =
       event.dataTransfer.getData("application/logger-snippet") ||
+      event.dataTransfer.getData("application/json") ||
       event.dataTransfer.getData("text/plain");
 
     if (!rawSnippet) {
@@ -1435,6 +1686,26 @@ export function CanvasBoard({
         <button
           type="button"
           className="ghost-button"
+          disabled={!onUndo || !canUndo}
+          onClick={onUndo}
+          title="Ctrl/⌘ + Z"
+        >
+          撤销
+        </button>
+
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={!onRedo || !canRedo}
+          onClick={onRedo}
+          title="Ctrl/⌘ + Shift + Z"
+        >
+          重做
+        </button>
+
+        <button
+          type="button"
+          className="ghost-button"
           onClick={() => patchCanvas({ zoom: clamp(value.zoom - 0.1, 0.25, 4) })}
         >
           缩小
@@ -1466,15 +1737,30 @@ export function CanvasBoard({
       </div>
 
       <p className="muted">
-        {selectedEntityLabel}。Ctrl/⌘ + 滚轮缩放；滚轮平移；按住 Space 拖拽平移；Shift 约束方向；Alt
-        拖拽复制。
+        {selectedEntityLabel}。Ctrl/⌘ + 滚轮缩放；滚轮平移；Space 拖拽平移；Shift 约束方向；Alt
+        拖拽复制；Ctrl/⌘+Z 撤销，Shift+Z 重做；Ctrl/⌘+C/V 复制粘贴。
       </p>
 
       <div
-        className="canvas-viewport"
+        className={`canvas-viewport ${dropActive ? "drop-active" : ""}`}
         ref={viewportRef}
+        tabIndex={0}
+        aria-label="线索画板"
+        onPointerDown={() => {
+          viewportRef.current?.focus();
+        }}
         onDragOver={(event) => {
           event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          if (!dropActive) {
+            setDropActive(true);
+          }
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            return;
+          }
+          setDropActive(false);
         }}
         onDrop={handleDrop}
         onWheel={handleWheel}

@@ -880,9 +880,6 @@ button.agg-chip {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.62);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   padding: 8px;
 }
 
@@ -898,6 +895,7 @@ button.agg-chip {
   border: 1px dashed var(--line);
   border-radius: 10px;
   background: #fff;
+  overflow: hidden;
 }
 
 .search-item.compact {
@@ -950,12 +948,6 @@ button.agg-chip {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.search-item:hover .search-preview {
-  white-space: normal;
-  max-height: 58px;
-  overflow: auto;
 }
 
 .search-item-actions {
@@ -1171,6 +1163,7 @@ button.agg-chip {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
   border-bottom: 1px solid rgba(141, 156, 212, 0.18);
+  height: 100%;
 }
 
 .log-line:hover {
@@ -1226,8 +1219,8 @@ button.agg-chip {
 }
 
 .line-text {
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
   padding: 4px 10px;
   user-select: text;
 }
@@ -1449,6 +1442,18 @@ button.agg-chip {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: none;
+}
+
+.canvas-viewport.drop-active {
+  border-color: #2e7d32;
+  box-shadow: inset 0 0 0 2px rgba(46, 125, 50, 0.18);
+}
+
+.canvas-viewport:focus {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(76, 124, 232, 0.3),
+    0 10px 28px rgba(22, 36, 78, 0.08);
 }
 
 .canvas-board {
@@ -1728,6 +1733,85 @@ button.agg-chip {
 
 .context-modal {
   width: min(860px, 100%);
+}
+
+.command-modal {
+  width: min(760px, 100%);
+}
+
+.command-input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+}
+
+.command-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.66);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+}
+
+.command-item {
+  border: 1px solid rgba(149, 169, 223, 0.55);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.command-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.command-item.active {
+  border-color: #6f94eb;
+  box-shadow: 0 0 0 2px rgba(106, 145, 236, 0.2);
+}
+
+.command-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-item-main strong {
+  font-size: 13px;
+}
+
+.command-item-main span {
+  font-size: 11px;
+}
+
+.command-shortcut {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 150, 230, 0.55);
+  background: rgba(223, 234, 255, 0.9);
+  color: #2f4f97;
+}
+
+.command-footnote {
+  margin-top: 2px;
 }
 
 .context-modal-body {
