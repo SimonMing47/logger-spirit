@@ -448,7 +448,7 @@ a {
 .workspace-tab-item {
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--panel-solid);
   display: inline-flex;
   align-items: center;
   min-width: 142px;
@@ -471,7 +471,7 @@ a {
   border-radius: 8px;
   padding: 5px 7px;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--panel-solid);
   color: inherit;
 }
 
@@ -481,7 +481,7 @@ a {
   padding: 5px 8px;
   font-size: 12px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--panel-solid);
   color: inherit;
 }
 
@@ -770,7 +770,7 @@ a {
   border-radius: 10px;
   padding: 6px 8px;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--panel-solid);
   color: var(--text);
 }
 
@@ -797,8 +797,16 @@ a {
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 13px;
-  background: #fff;
+  background: var(--panel-solid);
   color: var(--text);
+}
+
+.search-input::placeholder,
+.search-mini-input::placeholder,
+.tree-filter-input::placeholder,
+.workspace-tab-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.9;
 }
 
 .search-input {
@@ -1266,6 +1274,13 @@ button.agg-chip {
   user-select: text;
 }
 
+.log-hit {
+  background: rgba(255, 191, 86, 0.32);
+  border-radius: 4px;
+  padding: 0 2px;
+  box-shadow: 0 0 0 1px rgba(255, 191, 86, 0.18) inset;
+}
+
 .right-split {
   flex: 1;
   min-height: 0;
@@ -1290,7 +1305,7 @@ button.agg-chip {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text);
-  background: #fff;
+  background: var(--panel-solid);
 }
 
 .notes-toolbar {

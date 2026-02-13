@@ -6,6 +6,24 @@ export const WORKSPACES_DIR = "workspaces";
 export const INDEX_FILE = "index.json";
 export const MANIFEST_FILE = "manifest.json";
 
+const HANDLE_DB_NAME = "logger-spirit";
+const HANDLE_DB_VERSION = 1;
+const HANDLE_STORE_NAME = "fs-handles";
+const ROOT_HANDLE_ID = "root-storage";
+
+type RootDirectoryHandleRecord = {
+  id: string;
+  handle: FileSystemDirectoryHandle;
+  updatedAt: number;
+};
+
+type DirectoryPermissionMode = "read" | "readwrite";
+
+type DirectoryHandleWithPermissions = {
+  queryPermission?: (descriptor?: { mode?: DirectoryPermissionMode }) => Promise<PermissionState>;
+  requestPermission?: (descriptor?: { mode?: DirectoryPermissionMode }) => Promise<PermissionState>;
+};
+
 const DEFAULT_INDEX: WorkspaceIndex = {
   version: 1,
   workspaces: [],
@@ -17,6 +35,133 @@ export function supportsFileSystemApi(): boolean {
 
 export async function pickDirectory(): Promise<FileSystemDirectoryHandle> {
   return window.showDirectoryPicker({ mode: "readwrite" });
+}
+
+function canUseIndexedDb(): boolean {
+  return typeof indexedDB !== "undefined";
+}
+
+async function openHandleDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(HANDLE_DB_NAME, HANDLE_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(HANDLE_STORE_NAME)) {
+        db.createObjectStore(HANDLE_STORE_NAME, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () =>
+      reject(request.error ?? new Error("Failed to open IndexedDB database"));
+  });
+}
+
+export async function rememberRootDirectoryHandle(
+  handle: FileSystemDirectoryHandle,
+): Promise<void> {
+  if (!canUseIndexedDb()) {
+    return;
+  }
+
+  try {
+    const db = await openHandleDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(HANDLE_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(HANDLE_STORE_NAME);
+
+      store.put({
+        id: ROOT_HANDLE_ID,
+        handle,
+        updatedAt: Date.now(),
+      } satisfies RootDirectoryHandleRecord);
+
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("IndexedDB transaction failed"));
+    });
+  } catch {
+    // Ignore persistence failures (private mode / storage restrictions).
+  }
+}
+
+export async function forgetRememberedRootDirectoryHandle(): Promise<void> {
+  if (!canUseIndexedDb()) {
+    return;
+  }
+
+  try {
+    const db = await openHandleDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(HANDLE_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(HANDLE_STORE_NAME);
+      store.delete(ROOT_HANDLE_ID);
+
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("IndexedDB transaction failed"));
+    });
+  } catch {
+    // Ignore deletion failures.
+  }
+}
+
+export async function loadRememberedRootDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
+  if (!canUseIndexedDb()) {
+    return null;
+  }
+
+  try {
+    const db = await openHandleDatabase();
+    const record = await new Promise<RootDirectoryHandleRecord | undefined>((resolve, reject) => {
+      const transaction = db.transaction(HANDLE_STORE_NAME, "readonly");
+      const store = transaction.objectStore(HANDLE_STORE_NAME);
+      const request = store.get(ROOT_HANDLE_ID);
+
+      request.onsuccess = () => resolve(request.result as RootDirectoryHandleRecord | undefined);
+      request.onerror = () =>
+        reject(request.error ?? new Error("Failed to read IndexedDB record"));
+    });
+
+    return record?.handle ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function queryDirectoryPermission(
+  handle: FileSystemDirectoryHandle,
+  mode: DirectoryPermissionMode = "readwrite",
+): Promise<PermissionState> {
+  try {
+    const permissions = handle as unknown as DirectoryHandleWithPermissions;
+    if (typeof permissions.queryPermission !== "function") {
+      return "prompt";
+    }
+    return await permissions.queryPermission({ mode });
+  } catch {
+    return "prompt";
+  }
+}
+
+export async function requestDirectoryPermission(
+  handle: FileSystemDirectoryHandle,
+  mode: DirectoryPermissionMode = "readwrite",
+): Promise<PermissionState> {
+  try {
+    const permissions = handle as unknown as DirectoryHandleWithPermissions;
+    if (typeof permissions.requestPermission !== "function") {
+      return "denied";
+    }
+    return await permissions.requestPermission({ mode });
+  } catch {
+    return "denied";
+  }
 }
 
 export async function ensureDirectory(

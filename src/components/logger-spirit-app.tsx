@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CanvasBoard } from "@/components/canvas-board";
 import { VirtualList } from "@/components/virtual-list";
@@ -10,9 +10,13 @@ import {
   WORKSPACES_DIR,
   deleteWorkspaceData,
   loadWorkspaceIndex,
+  loadRememberedRootDirectoryHandle,
   loadWorkspaceManifest,
   pickDirectory,
+  queryDirectoryPermission,
   readBinaryFile,
+  rememberRootDirectoryHandle,
+  requestDirectoryPermission,
   saveWorkspaceIndex,
   saveWorkspaceManifest,
   supportsFileSystemApi,
@@ -184,6 +188,136 @@ type SearchPrefs = Pick<SearchOptions, "regex" | "caseSensitive" | "realtime" | 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+type HighlightSpec =
+  | {
+      kind: "text";
+      needle: string;
+      needleLower: string;
+      caseSensitive: boolean;
+    }
+  | {
+      kind: "regex";
+      regex: RegExp;
+    };
+
+function buildHighlightSpec(
+  query: string,
+  options: Pick<SearchOptions, "regex" | "caseSensitive">,
+): HighlightSpec | null {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (options.regex) {
+    try {
+      const flags = options.caseSensitive ? "g" : "gi";
+      return { kind: "regex", regex: new RegExp(trimmed, flags) };
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    kind: "text",
+    needle: trimmed,
+    needleLower: trimmed.toLocaleLowerCase(),
+    caseSensitive: options.caseSensitive,
+  };
+}
+
+function highlightText(text: string, spec: HighlightSpec | null): ReactNode {
+  if (!spec) {
+    return text || " ";
+  }
+
+  if (!text) {
+    return " ";
+  }
+
+  const parts: ReactNode[] = [];
+  const maxHits = 64;
+
+  if (spec.kind === "text") {
+    const haystack = spec.caseSensitive ? text : text.toLocaleLowerCase();
+    const needle = spec.caseSensitive ? spec.needle : spec.needleLower;
+
+    if (!needle) {
+      return text;
+    }
+
+    let fromIndex = 0;
+    let hits = 0;
+
+    while (fromIndex < text.length) {
+      const index = haystack.indexOf(needle, fromIndex);
+      if (index === -1 || hits >= maxHits) {
+        break;
+      }
+
+      if (index > fromIndex) {
+        parts.push(text.slice(fromIndex, index));
+      }
+
+      parts.push(
+        <span key={`${index}-${hits}`} className="log-hit">
+          {text.slice(index, index + needle.length)}
+        </span>,
+      );
+
+      fromIndex = index + needle.length;
+      hits += 1;
+    }
+
+    if (fromIndex < text.length) {
+      parts.push(text.slice(fromIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  }
+
+  const regex = spec.regex;
+  regex.lastIndex = 0;
+
+  let cursor = 0;
+  let hits = 0;
+
+  while (cursor < text.length) {
+    const match = regex.exec(text);
+    if (!match || hits >= maxHits) {
+      break;
+    }
+
+    const start = match.index;
+    const value = match[0] ?? "";
+    const end = start + value.length;
+
+    if (end <= cursor) {
+      regex.lastIndex = Math.min(text.length, cursor + 1);
+      continue;
+    }
+
+    if (start > cursor) {
+      parts.push(text.slice(cursor, start));
+    }
+
+    parts.push(
+      <span key={`${start}-${hits}`} className="log-hit">
+        {text.slice(start, end)}
+      </span>,
+    );
+
+    cursor = end;
+    hits += 1;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts.length > 0 ? parts : text;
 }
 
 function createId(prefix: string): string {
@@ -507,6 +641,9 @@ export function LoggerSpiritApp() {
   const [isFsSupported, setIsFsSupported] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>("sky");
   const [pickingDirectoryFromWelcome, setPickingDirectoryFromWelcome] = useState(false);
+  const [restoringDirectoryHandle, setRestoringDirectoryHandle] = useState(true);
+  const [rememberedDirectoryHandle, setRememberedDirectoryHandle] =
+    useState<FileSystemDirectoryHandle | null>(null);
 
   const [directoryHandle, setDirectoryHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
@@ -648,9 +785,18 @@ export function LoggerSpiritApp() {
         filters.namespace ||
         filters.level ||
         filters.timeFrom ||
-        filters.timeTo,
+      filters.timeTo,
     );
   }, [searchOptions.filters, searchQuery]);
+
+  const viewerHighlightSpec = useMemo(
+    () =>
+      buildHighlightSpec(searchQuery, {
+        regex: searchOptions.regex,
+        caseSensitive: searchOptions.caseSensitive,
+      }),
+    [searchOptions.caseSensitive, searchOptions.regex, searchQuery],
+  );
 
   const activeTab = useMemo(
     () => openTabs.find((tab) => tab.key === activeTabKey) ?? null,
@@ -1139,6 +1285,61 @@ export function LoggerSpiritApp() {
     [clientReady, resetWorkspaceView],
   );
 
+  useEffect(() => {
+    if (!clientReady) {
+      return;
+    }
+
+    if (!isFsSupported) {
+      setRestoringDirectoryHandle(false);
+      return;
+    }
+
+    if (directoryHandle) {
+      setRestoringDirectoryHandle(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRestoringDirectoryHandle(true);
+
+    const restore = async () => {
+      const remembered = await loadRememberedRootDirectoryHandle();
+      if (cancelled) {
+        return;
+      }
+
+      setRememberedDirectoryHandle(remembered);
+
+      if (!remembered) {
+        return;
+      }
+
+      const permission = await queryDirectoryPermission(remembered, "readwrite");
+      if (cancelled) {
+        return;
+      }
+
+      if (permission === "granted") {
+        await loadDirectoryWorkspaceIndex(remembered);
+      }
+    };
+
+    void restore()
+      .catch(() => {
+        // Ignore restore failures and show picker modal.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRestoringDirectoryHandle(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clientReady, directoryHandle, isFsSupported, loadDirectoryWorkspaceIndex]);
+
   const handlePickDirectory = useCallback(async (): Promise<boolean> => {
     if (!isFsSupported) {
       setStatus("当前浏览器不支持本地目录访问，请使用 Chromium 内核浏览器。");
@@ -1150,6 +1351,8 @@ export function LoggerSpiritApp() {
       await flushPendingSave();
       const handle = await pickDirectory();
       await loadDirectoryWorkspaceIndex(handle);
+      await rememberRootDirectoryHandle(handle);
+      setRememberedDirectoryHandle(handle);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1165,9 +1368,35 @@ export function LoggerSpiritApp() {
 
   const handlePickDirectoryFromWelcome = useCallback(async () => {
     setPickingDirectoryFromWelcome(true);
-    await handlePickDirectory();
-    setPickingDirectoryFromWelcome(false);
-  }, [handlePickDirectory]);
+    try {
+      if (rememberedDirectoryHandle) {
+        flushCanvasPersist();
+        await flushPendingSave();
+
+        const permission = await requestDirectoryPermission(
+          rememberedDirectoryHandle,
+          "readwrite",
+        );
+
+        if (permission === "granted") {
+          await loadDirectoryWorkspaceIndex(rememberedDirectoryHandle);
+          await rememberRootDirectoryHandle(rememberedDirectoryHandle);
+          setRememberedDirectoryHandle(rememberedDirectoryHandle);
+          return;
+        }
+      }
+
+      await handlePickDirectory();
+    } finally {
+      setPickingDirectoryFromWelcome(false);
+    }
+  }, [
+    flushCanvasPersist,
+    flushPendingSave,
+    handlePickDirectory,
+    loadDirectoryWorkspaceIndex,
+    rememberedDirectoryHandle,
+  ]);
 
   const openCreateWorkspaceModal = useCallback(() => {
     if (!directoryHandle) {
@@ -3781,7 +4010,9 @@ export function LoggerSpiritApp() {
 	                                      <span>
 	                                        {result.filePath}:{result.line}
 	                                      </span>
-	                                      <p className="search-preview">{result.preview}</p>
+	                                      <p className="search-preview">
+	                                        {highlightText(result.preview, viewerHighlightSpec)}
+	                                      </p>
 	                                    </button>
 
 	                                    <div className="search-item-actions">
@@ -4011,7 +4242,9 @@ export function LoggerSpiritApp() {
 	                              </button>
 	                              <span className="line-no">{lineNumber}</span>
 	                            </span>
-	                            <span className="line-text">{line || " "}</span>
+	                            <span className="line-text">
+	                              {highlightText(line, viewerHighlightSpec)}
+	                            </span>
 	                          </div>
 	                        );
 	                      }}
@@ -4228,7 +4461,7 @@ export function LoggerSpiritApp() {
         </main>
       )}
 
-      {!directoryHandle && clientReady && isFsSupported ? (
+      {!directoryHandle && clientReady && isFsSupported && !restoringDirectoryHandle ? (
         <div className="modal-backdrop">
           <div className="modal-card guide-modal">
             <div className="modal-head">
@@ -4239,6 +4472,12 @@ export function LoggerSpiritApp() {
               Logger Spirit 需要访问一个本地主存储目录，用于解压日志、建立索引、保存笔记与画板。
               点击下方按钮后，浏览器会弹出系统权限提示，请允许读写并选择你用于存放日志的目录。
             </p>
+
+            {rememberedDirectoryHandle ? (
+              <p className="muted">
+                检测到上次使用的目录：<strong>{rememberedDirectoryHandle.name || "已保存目录"}</strong>
+              </p>
+            ) : null}
 
             <ol className="guide-list">
               <li>选择主存储目录并授权读写。</li>
@@ -4256,7 +4495,11 @@ export function LoggerSpiritApp() {
                   void handlePickDirectoryFromWelcome();
                 }}
               >
-                {pickingDirectoryFromWelcome ? "选择中..." : "选择主存储目录"}
+                {pickingDirectoryFromWelcome
+                  ? "处理中..."
+                  : rememberedDirectoryHandle
+                    ? "继续使用上次目录"
+                    : "选择主存储目录"}
               </button>
             </div>
           </div>
