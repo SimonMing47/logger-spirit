@@ -3032,6 +3032,12 @@ export function LoggerSpiritApp() {
     <div className="logger-shell">
       <header className="top-bar">
         <div className="top-bar-group">
+          <div className="app-brand" aria-label="Logger Spirit">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="app-logo" src="/icon.svg" alt="" aria-hidden="true" />
+            <span className="app-title">Logger Spirit</span>
+          </div>
+
           <button
             type="button"
             className="primary-button"
@@ -4529,7 +4535,10 @@ export function LoggerSpiritApp() {
         </div>
       ) : null}
 
-      <footer className="status-footer">{status}</footer>
+      <footer className="status-footer">
+        <span className="status-footer-text">{status}</span>
+        <span className="status-footer-meta">@CopyRight：codex & 00477369；</span>
+      </footer>
     </div>
   );
 }

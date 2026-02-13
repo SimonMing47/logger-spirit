@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Logger Spirit">
+  <defs>
+    <linearGradient id="ls-g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e5eff" />
+      <stop offset="1" stop-color="#6bb6ff" />
+    </linearGradient>
+    <radialGradient
+      id="ls-h"
+      cx="0"
+      cy="0"
+      r="1"
+      gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(18 14) rotate(55) scale(42)"
+    >
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <filter id="ls-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0b2d83" flood-opacity="0.22" />
+    </filter>
+  </defs>
+
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#ls-g)" />
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#ls-h)" />
+
+  <g filter="url(#ls-shadow)" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 22h22" stroke-width="4" opacity="0.9" />
+    <path d="M18 32h14" stroke-width="4" opacity="0.75" />
+    <path d="M18 42h12" stroke-width="4" opacity="0.6" />
+    <circle cx="41" cy="37" r="10" stroke-width="4" opacity="0.95" />
+    <path d="M48 44l7 7" stroke-width="4" opacity="0.95" />
+  </g>
+</svg>
+
