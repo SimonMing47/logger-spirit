@@ -975,6 +975,20 @@ a {
   gap: 6px;
 }
 
+.search-row .primary-button.tiny {
+  /* Keep the search input width stable when the button label changes (e.g. 搜索 -> 搜索中...). */
+  min-width: 86px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.search-row .primary-button.tiny:not(:disabled):hover {
+  /* Avoid the 1px translate hover jitter on toolbar-sized buttons. */
+  transform: none;
+}
+
 .search-box.compact .search-input {
   padding: 6px 9px;
   font-size: 12px;
