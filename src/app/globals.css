@@ -760,6 +760,15 @@ a {
   background: rgba(255, 211, 142, 0.34);
 }
 
+.tree-search-hit .tree-node-icon {
+  color: #ff9f43;
+}
+
+.tree-search-hit .tree-node-label {
+  font-weight: 650;
+  color: #a25b2a;
+}
+
 .tree-filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -1230,6 +1239,35 @@ button.agg-chip {
   gap: 8px;
 }
 
+.viewer-find-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 10px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.viewer-find-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 6px 9px;
+  font-size: 12px;
+  background: var(--panel-solid);
+  color: var(--text);
+}
+
+.viewer-find-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 48px;
+  text-align: right;
+}
+
 .viewer-content {
   flex: 1;
   min-height: 0;
@@ -1313,6 +1351,13 @@ button.agg-chip {
   border-radius: 4px;
   padding: 0 2px;
   box-shadow: 0 0 0 1px rgba(255, 191, 86, 0.18) inset;
+}
+
+.log-find-hit {
+  background: rgba(62, 234, 201, 0.22);
+  border-radius: 4px;
+  padding: 0 2px;
+  box-shadow: 0 0 0 1px rgba(62, 234, 201, 0.16) inset;
 }
 
 .right-split {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CanvasBoard } from "@/components/canvas-board";
-import { VirtualList } from "@/components/virtual-list";
+import { VirtualList, type VirtualListHandle } from "@/components/virtual-list";
 import { extractArchiveRecursively } from "@/lib/archive";
 import {
   APP_DATA_DIR,
@@ -228,7 +228,11 @@ function buildHighlightSpec(
   };
 }
 
-function highlightText(text: string, spec: HighlightSpec | null): ReactNode {
+function highlightText(
+  text: string,
+  spec: HighlightSpec | null,
+  options?: { hitClassName?: string },
+): ReactNode {
   if (!spec) {
     return text || " ";
   }
@@ -237,6 +241,7 @@ function highlightText(text: string, spec: HighlightSpec | null): ReactNode {
     return " ";
   }
 
+  const hitClassName = options?.hitClassName ?? "log-hit";
   const parts: ReactNode[] = [];
   const maxHits = 64;
 
@@ -304,7 +309,7 @@ function highlightText(text: string, spec: HighlightSpec | null): ReactNode {
     }
 
     parts.push(
-      <span key={`${start}-${hits}`} className="log-hit">
+      <span key={`${start}-${hits}`} className={hitClassName}>
         {text.slice(start, end)}
       </span>,
     );
@@ -677,6 +682,11 @@ export function LoggerSpiritApp() {
   const [activeLogRef, setActiveLogRef] = useState<string | null>(null);
   const [selectedSnippet, setSelectedSnippet] = useState("");
 
+  const [viewerFindOpen, setViewerFindOpen] = useState(false);
+  const [viewerFindQuery, setViewerFindQuery] = useState("");
+  const [viewerFindCaseSensitive, setViewerFindCaseSensitive] = useState(false);
+  const [viewerFindMatchIndex, setViewerFindMatchIndex] = useState(0);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOptions, setSearchOptions] = useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
   const [timeFromInput, setTimeFromInput] = useState("");
@@ -734,6 +744,8 @@ export function LoggerSpiritApp() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const notesEditorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const viewerFindInputRef = useRef<HTMLInputElement | null>(null);
+  const viewerListRef = useRef<VirtualListHandle | null>(null);
   const treeFilterInputRef = useRef<HTMLInputElement | null>(null);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandLastFocusRef = useRef<HTMLElement | null>(null);
@@ -765,6 +777,7 @@ export function LoggerSpiritApp() {
   const indexedSignaturesRef = useRef<Map<string, Map<string, string>>>(new Map());
   const activeWorkspaceIdRef = useRef("");
   const activeWorkspaceRef = useRef<WorkspaceManifest | null>(null);
+  const activeViewerRef = useRef<ViewerCacheEntry | null>(null);
 
   const paneSnapshotRef = useRef({
     leftWidth,
@@ -772,6 +785,9 @@ export function LoggerSpiritApp() {
     leftCollapsed,
     rightCollapsed,
   });
+
+  const pendingSearchAfterIndexRef = useRef(false);
+  const indexingWasActiveRef = useRef(false);
 
   const hasSearchInput = useMemo(() => {
     if (searchQuery.trim()) {
@@ -798,12 +814,50 @@ export function LoggerSpiritApp() {
     [searchOptions.caseSensitive, searchOptions.regex, searchQuery],
   );
 
+  const viewerFindSpec = useMemo(
+    () =>
+      buildHighlightSpec(viewerFindQuery, {
+        regex: false,
+        caseSensitive: viewerFindCaseSensitive,
+      }),
+    [viewerFindCaseSensitive, viewerFindQuery],
+  );
+
   const activeTab = useMemo(
     () => openTabs.find((tab) => tab.key === activeTabKey) ?? null,
     [activeTabKey, openTabs],
   );
 
   const activeViewer = activeTabKey ? viewerCache[activeTabKey] : undefined;
+  activeViewerRef.current = activeViewer ?? null;
+
+  const viewerFindMatches = useMemo(() => {
+    if (!viewerFindOpen) {
+      return [];
+    }
+
+    const viewer = activeViewer;
+    if (!viewer || viewer.binary) {
+      return [];
+    }
+
+    const query = viewerFindQuery.trim();
+    if (!query) {
+      return [];
+    }
+
+    const needle = viewerFindCaseSensitive ? query : query.toLowerCase();
+    const matches: number[] = [];
+
+    viewer.lines.forEach((line, index) => {
+      const haystack = viewerFindCaseSensitive ? line : line.toLowerCase();
+      if (haystack.includes(needle)) {
+        matches.push(index);
+      }
+    });
+
+    return matches;
+  }, [activeViewer, viewerFindCaseSensitive, viewerFindOpen, viewerFindQuery]);
 
   const searchHitCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1856,6 +1910,22 @@ export function LoggerSpiritApp() {
 
   const activeRoots = activeWorkspace?.roots;
 
+  const indexableFileCount = useMemo(() => {
+    if (!activeRoots) {
+      return 0;
+    }
+
+    let count = 0;
+    activeRoots.forEach((root) => {
+      root.files.forEach((file) => {
+        if (file.textLike && file.size <= MAX_INDEX_FILE_BYTES) {
+          count += 1;
+        }
+      });
+    });
+    return count;
+  }, [activeRoots]);
+
   const indexSignature = useMemo(() => {
     if (!activeRoots) {
       return "";
@@ -1904,6 +1974,9 @@ export function LoggerSpiritApp() {
     }
 
     setSearching(true);
+    if (indexStatus.indexing || indexStatus.indexedFiles < indexableFileCount) {
+      pendingSearchAfterIndexRef.current = true;
+    }
 
     searchWorkerRef.current.postMessage({
       type: "search",
@@ -1912,7 +1985,16 @@ export function LoggerSpiritApp() {
       query: searchQuery,
       options: searchOptions,
     });
-  }, [activeManifestId, expandedNodes, hasSearchInput, searchOptions, searchQuery]);
+  }, [
+    activeManifestId,
+    expandedNodes,
+    hasSearchInput,
+    indexStatus.indexedFiles,
+    indexStatus.indexing,
+    indexableFileCount,
+    searchOptions,
+    searchQuery,
+  ]);
 
   useEffect(() => {
     if (!activeManifestId || !searchOptions.realtime) {
@@ -1927,6 +2009,26 @@ export function LoggerSpiritApp() {
       window.clearTimeout(timer);
     };
   }, [activeManifestId, executeSearch, searchOptions.realtime]);
+
+  useEffect(() => {
+    if (indexStatus.indexing) {
+      indexingWasActiveRef.current = true;
+      return;
+    }
+
+    if (!indexingWasActiveRef.current) {
+      return;
+    }
+
+    indexingWasActiveRef.current = false;
+
+    if (pendingSearchAfterIndexRef.current) {
+      pendingSearchAfterIndexRef.current = false;
+      if (hasSearchInput) {
+        executeSearch();
+      }
+    }
+  }, [executeSearch, hasSearchInput, indexStatus.indexing]);
 
   const openLogTab = useCallback(
     ({
@@ -2224,6 +2326,81 @@ export function LoggerSpiritApp() {
     }));
   }, [updateCanvasDraft]);
 
+  const openViewerFind = useCallback(() => {
+    const viewer = activeViewerRef.current;
+    if (!viewer || viewer.binary) {
+      return;
+    }
+
+    setViewerFindOpen(true);
+    window.setTimeout(() => {
+      viewerFindInputRef.current?.focus();
+      viewerFindInputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const closeViewerFind = useCallback(() => {
+    setViewerFindOpen(false);
+  }, []);
+
+  const selectViewerFindMatch = useCallback(
+    (targetIndex: number) => {
+      const viewer = activeViewerRef.current;
+      if (!viewer || viewer.binary) {
+        return;
+      }
+
+      if (viewerFindMatches.length === 0) {
+        return;
+      }
+
+      const total = viewerFindMatches.length;
+      const safeIndex = ((targetIndex % total) + total) % total;
+      setViewerFindMatchIndex(safeIndex);
+
+      const lineIndex = viewerFindMatches[safeIndex] ?? null;
+      if (lineIndex === null) {
+        return;
+      }
+
+      const lineNumber = lineIndex + 1;
+      setActiveLine(lineNumber);
+      setActiveLogRef(logRefKey(viewer.rootId, viewer.filePath, lineNumber));
+
+      window.setTimeout(() => {
+        viewerListRef.current?.scrollToIndex(lineIndex, { align: "center" });
+      }, 0);
+    },
+    [viewerFindMatches],
+  );
+
+  const gotoNextViewerFindMatch = useCallback(() => {
+    selectViewerFindMatch(viewerFindMatchIndex + 1);
+  }, [selectViewerFindMatch, viewerFindMatchIndex]);
+
+  const gotoPrevViewerFindMatch = useCallback(() => {
+    selectViewerFindMatch(viewerFindMatchIndex - 1);
+  }, [selectViewerFindMatch, viewerFindMatchIndex]);
+
+  useEffect(() => {
+    if (!viewerFindOpen) {
+      return;
+    }
+
+    setViewerFindMatchIndex(0);
+
+    if (viewerFindMatches.length > 0) {
+      selectViewerFindMatch(0);
+    }
+  }, [
+    activeTabKey,
+    selectViewerFindMatch,
+    viewerFindCaseSensitive,
+    viewerFindMatches.length,
+    viewerFindOpen,
+    viewerFindQuery,
+  ]);
+
   const openCommandPalette = useCallback(() => {
     commandLastFocusRef.current = document.activeElement as HTMLElement | null;
     setCommandPaletteQuery("");
@@ -2252,6 +2429,14 @@ export function LoggerSpiritApp() {
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        if (activeViewerRef.current && !activeViewerRef.current.binary) {
+          event.preventDefault();
+          openViewerFind();
+          return;
+        }
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (commandPaletteOpen) {
@@ -2262,15 +2447,31 @@ export function LoggerSpiritApp() {
         return;
       }
 
-      if (commandPaletteOpen && event.key === "Escape") {
-        event.preventDefault();
-        closeCommandPalette();
+      if (event.key === "Escape") {
+        if (commandPaletteOpen) {
+          event.preventDefault();
+          closeCommandPalette();
+          return;
+        }
+
+        if (viewerFindOpen) {
+          event.preventDefault();
+          closeViewerFind();
+        }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [clientReady, closeCommandPalette, commandPaletteOpen, openCommandPalette]);
+  }, [
+    clientReady,
+    closeCommandPalette,
+    closeViewerFind,
+    commandPaletteOpen,
+    openCommandPalette,
+    openViewerFind,
+    viewerFindOpen,
+  ]);
 
   useEffect(() => {
     if (!commandPaletteOpen) {
@@ -3641,6 +3842,9 @@ export function LoggerSpiritApp() {
 	                        onChange={(event) => setSearchQuery(event.target.value)}
 	                        onKeyDown={(event) => {
 	                          if (event.key === "Enter") {
+                              if (!showSearchInsights) {
+                                toggleSearchInsights();
+                              }
                             executeSearch();
                           }
                         }}
@@ -3649,7 +3853,12 @@ export function LoggerSpiritApp() {
                         type="button"
                         className="primary-button tiny"
                         disabled={!activeWorkspace || searching}
-                        onClick={executeSearch}
+                        onClick={() => {
+                          if (!showSearchInsights) {
+                            toggleSearchInsights();
+                          }
+                          executeSearch();
+                        }}
                       >
                         {searching ? "搜索中..." : "搜索"}
                       </button>
@@ -3974,7 +4183,12 @@ export function LoggerSpiritApp() {
 	                            className="search-results compact"
 	                            style={{ height: searchResultsHeight }}
 	                          >
-	                            <p className="muted">暂无命中结果。</p>
+	                            <p className="muted">
+                                {searching ? "搜索中..." : hasSearchInput ? "暂无命中结果。" : "请输入关键字开始搜索。"}
+                              </p>
+                              {indexStatus.indexing ? (
+                                <p className="muted">索引更新中，结果会自动刷新。</p>
+                              ) : null}
 	                          </div>
 	                        ) : (
 	                          <VirtualList
@@ -4206,12 +4420,81 @@ export function LoggerSpiritApp() {
                     </div>
                   </div>
 
+                  {viewerFindOpen && activeViewer && !activeViewer.binary ? (
+                    <div className="viewer-find-bar">
+                      <input
+                        ref={viewerFindInputRef}
+                        className="viewer-find-input"
+                        value={viewerFindQuery}
+                        placeholder="在当前文件内查找 (Ctrl/Cmd+F)"
+                        onChange={(event) => setViewerFindQuery(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            if (event.shiftKey) {
+                              gotoPrevViewerFindMatch();
+                            } else {
+                              gotoNextViewerFindMatch();
+                            }
+                          }
+
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            closeViewerFind();
+                          }
+                        }}
+                      />
+
+                      <span className="viewer-find-count">
+                        {viewerFindMatches.length > 0
+                          ? `${Math.min(viewerFindMatchIndex, viewerFindMatches.length - 1) + 1}/${viewerFindMatches.length}`
+                          : "0/0"}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="ghost-button tiny"
+                        disabled={viewerFindMatches.length === 0}
+                        onClick={gotoPrevViewerFindMatch}
+                        title="上一个 (Shift+Enter)"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button tiny"
+                        disabled={viewerFindMatches.length === 0}
+                        onClick={gotoNextViewerFindMatch}
+                        title="下一个 (Enter)"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        className={`ghost-button tiny ${viewerFindCaseSensitive ? "active" : ""}`}
+                        title="区分大小写"
+                        onClick={() => setViewerFindCaseSensitive((current) => !current)}
+                      >
+                        Aa
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button tiny"
+                        onClick={closeViewerFind}
+                        title="关闭"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : null}
+
                   {viewerLoading ? (
                     <p className="muted">读取中...</p>
 	                  ) : activeViewer?.binary ? (
 	                    <p className="muted">当前文件为二进制或不可读文本，暂不支持预览。</p>
 	                  ) : activeViewer?.lines.length ? (
 	                    <VirtualList
+	                      ref={viewerListRef}
 	                      className="viewer-content"
 	                      itemCount={activeViewer.lines.length}
 	                      itemHeight={28}
@@ -4278,7 +4561,11 @@ export function LoggerSpiritApp() {
 	                              <span className="line-no">{lineNumber}</span>
 	                            </span>
 	                            <span className="line-text">
-	                              {highlightText(line, viewerHighlightSpec)}
+	                              {viewerFindOpen && viewerFindQuery.trim()
+	                                ? highlightText(line, viewerFindSpec, {
+	                                    hitClassName: "log-find-hit",
+	                                  })
+	                                : highlightText(line, viewerHighlightSpec)}
 	                            </span>
 	                          </div>
 	                        );

@@ -1,6 +1,22 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+export type VirtualListHandle = {
+  scrollToIndex: (
+    index: number,
+    options?: { align?: "start" | "center" | "end" },
+  ) => void;
+  scrollToOffset: (offset: number) => void;
+};
 
 type VirtualListProps = Omit<React.HTMLAttributes<HTMLDivElement>, "children"> & {
   itemCount: number;
@@ -9,19 +25,65 @@ type VirtualListProps = Omit<React.HTMLAttributes<HTMLDivElement>, "children"> &
   renderRow: (index: number, style: React.CSSProperties) => React.ReactNode;
 };
 
-export function VirtualList({
-  itemCount,
-  itemHeight,
-  overscan = 6,
-  className,
-  style,
-  onScroll,
-  renderRow,
-  ...rest
-}: VirtualListProps) {
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export const VirtualList = forwardRef<VirtualListHandle, VirtualListProps>(function VirtualList(
+  {
+    itemCount,
+    itemHeight,
+    overscan = 6,
+    className,
+    style,
+    onScroll,
+    renderRow,
+    ...rest
+  }: VirtualListProps,
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToOffset: (offset: number) => {
+        const el = containerRef.current;
+        if (!el || itemHeight <= 0 || itemCount <= 0) {
+          return;
+        }
+
+        const maxScroll = Math.max(0, itemCount * itemHeight - el.clientHeight);
+        const next = clamp(offset, 0, maxScroll);
+        el.scrollTop = next;
+        setScrollTop(next);
+      },
+      scrollToIndex: (index: number, options?: { align?: "start" | "center" | "end" }) => {
+        const el = containerRef.current;
+        if (!el || itemHeight <= 0 || itemCount <= 0) {
+          return;
+        }
+
+        const safeIndex = clamp(index, 0, itemCount - 1);
+        const maxScroll = Math.max(0, itemCount * itemHeight - el.clientHeight);
+        const align = options?.align ?? "start";
+
+        let offset = safeIndex * itemHeight;
+        if (align === "center") {
+          offset = safeIndex * itemHeight - el.clientHeight / 2 + itemHeight / 2;
+        } else if (align === "end") {
+          offset = safeIndex * itemHeight - el.clientHeight + itemHeight;
+        }
+
+        const next = clamp(offset, 0, maxScroll);
+        el.scrollTop = next;
+        setScrollTop(next);
+      },
+    }),
+    [itemCount, itemHeight],
+  );
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -94,4 +156,6 @@ export function VirtualList({
       {range.bottomPad > 0 ? <div style={{ height: range.bottomPad }} /> : null}
     </div>
   );
-}
+});
+
+VirtualList.displayName = "VirtualList";
