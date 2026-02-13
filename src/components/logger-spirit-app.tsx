@@ -2554,23 +2554,36 @@ export function LoggerSpiritApp() {
           const sourceBase = sanitizeFolderName(stripArchiveSuffix(getBaseName(archive.name)));
           const rootFolder = `${sourceBase}-${rootId.slice(-8)}`;
 
+          const written: typeof extracted = [];
+          let failedWrites = 0;
+
           for (let itemIndex = 0; itemIndex < extracted.length; itemIndex += 1) {
             const item = extracted[itemIndex];
 
-            await writeBinaryFile(
-              directoryHandle,
-              workspaceFilePath(working, rootFolder, item.path),
-              item.bytes,
-            );
+            try {
+              await writeBinaryFile(
+                directoryHandle,
+                workspaceFilePath(working, rootFolder, item.path),
+                item.bytes,
+              );
+              written.push(item);
+            } catch {
+              failedWrites += 1;
+            }
 
             if (itemIndex > 0 && itemIndex % 200 === 0) {
               setStatus(
-                `${archive.name}: 已写入 ${itemIndex}/${extracted.length} 个文件`,
+                `${archive.name}: 已处理 ${itemIndex}/${extracted.length}（成功 ${written.length}，失败 ${failedWrites}）`,
               );
             }
           }
 
-          const filesIndex = extracted.map((item) => ({
+          if (written.length === 0) {
+            setStatus(`${archive.name} 导入失败：没有成功写入任何文件`);
+            continue;
+          }
+
+          const filesIndex = written.map((item) => ({
             path: item.path,
             size: item.size,
             textLike: item.textLike,
@@ -2592,7 +2605,15 @@ export function LoggerSpiritApp() {
           };
 
           setActiveWorkspace(working);
+          setExpandedNodes((current) => {
+            const next = new Set(current);
+            next.add(root.tree.id);
+            return next;
+          });
           await saveWorkspaceManifest(directoryHandle, working);
+          if (failedWrites > 0) {
+            setStatus(`${archive.name}: 导入完成（成功 ${written.length}，失败 ${failedWrites}）`);
+          }
         } catch (error) {
           setStatus(`${archive.name} 导入失败: ${String(error)}`);
         }
@@ -3605,7 +3626,11 @@ export function LoggerSpiritApp() {
             <div className="center-split" ref={centerSplitRef}>
                   <section
                     className="search-box compact"
-                    style={{ flex: `0 0 ${Math.round(centerSplitRatio * 100)}%` }}
+                    style={
+                      showSearchInsights
+                        ? { flex: `0 0 ${Math.round(centerSplitRatio * 100)}%` }
+                        : { flex: "0 0 auto" }
+                    }
                   >
                     <div className="search-row">
 	                      <input
@@ -3622,25 +3647,29 @@ export function LoggerSpiritApp() {
                       />
                       <button
                         type="button"
-                        className="primary-button"
+                        className="primary-button tiny"
                         disabled={!activeWorkspace || searching}
                         onClick={executeSearch}
                       >
                         {searching ? "搜索中..." : "搜索"}
                       </button>
-                      <button type="button" className="ghost-button" onClick={clearSearch}>
+                      <button
+                        type="button"
+                        className="ghost-button tiny"
+                        onClick={clearSearch}
+                      >
                         清空
                       </button>
                       <button
                         type="button"
-                        className="ghost-button"
+                        className="ghost-button tiny"
                         onClick={() => setShowAdvancedSearch((current) => !current)}
                       >
                         {showAdvancedSearch ? "收起高级" : "高级搜索"}
                       </button>
                       <button
                         type="button"
-                        className="ghost-button"
+                        className="ghost-button tiny"
                         onClick={toggleSearchInsights}
                       >
                         {showSearchInsights ? "隐藏结果" : "显示结果"}
@@ -4114,14 +4143,20 @@ export function LoggerSpiritApp() {
                     ) : null}
                   </section>
 
-                  <div
-                    className="horizontal-resizer center-resizer"
-                    onPointerDown={startCenterSplitResize}
-                  />
+                  {showSearchInsights ? (
+                    <div
+                      className="horizontal-resizer center-resizer"
+                      onPointerDown={startCenterSplitResize}
+                    />
+                  ) : null}
 
                   <section
                     className="viewer-box"
-                    style={{ flex: `1 1 ${Math.round((1 - centerSplitRatio) * 100)}%` }}
+                    style={
+                      showSearchInsights
+                        ? { flex: `1 1 ${Math.round((1 - centerSplitRatio) * 100)}%` }
+                        : { flex: "1 1 auto" }
+                    }
                   >
                   <div className="tab-strip">
                     {openTabs.length === 0 ? (

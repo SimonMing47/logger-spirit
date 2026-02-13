@@ -227,7 +227,13 @@ function walkArchive(
     const mergedPath = joinPath(basePath, entryPath);
     const entryName = getBaseName(entryPath);
 
-    if (isArchiveFile(entryName)) {
+    const looksLikeArchive =
+      isArchiveFile(entryName) ||
+      hasZipSignature(entry.bytes) ||
+      hasGzipSignature(entry.bytes) ||
+      hasTarSignature(entry.bytes);
+
+    if (looksLikeArchive) {
       const nextBase = stripArchiveExtension(mergedPath);
       try {
         walkArchive(entryName, entry.bytes, nextBase, depth + 1, output);
