@@ -97,8 +97,8 @@ type DragSession = {
   up: (event: PointerEvent) => void;
 };
 
-const BOARD_WIDTH = 3200;
-const BOARD_HEIGHT = 1800;
+const TIMELINE_LANE_WIDTH = 3200;
+const GUIDE_EXTENT = 50000;
 const NOTE_WIDTH = 240;
 const NOTE_HEIGHT = 96;
 const TEXT_MIN_WIDTH = 140;
@@ -125,33 +125,39 @@ function canvasItemHeight(item: CanvasItem): number {
 
 function computeTimelineLayout(items: CanvasItem[]): {
   xById: Map<string, number>;
+  laneLeft: number;
+  laneRight: number;
   minTimestamp?: number;
   maxTimestamp?: number;
 } {
   const timeItems = items.filter((item) => typeof item.timestamp === "number");
   const xById = new Map<string, number>();
+  const laneLeft = 0;
+  const laneRight = TIMELINE_LANE_WIDTH;
 
   if (timeItems.length === 0) {
-    return { xById };
+    return { xById, laneLeft, laneRight };
   }
 
   const timestamps = timeItems.map((item) => item.timestamp as number);
   const minTimestamp = Math.min(...timestamps);
   const maxTimestamp = Math.max(...timestamps);
   const range = Math.max(1, maxTimestamp - minTimestamp);
-  const usableWidth = Math.max(1, BOARD_WIDTH - TIMELINE_MARGIN_X * 2);
+  const usableWidth = Math.max(1, TIMELINE_LANE_WIDTH - TIMELINE_MARGIN_X * 2);
 
   for (const item of timeItems) {
     const width = canvasItemWidth(item);
     const centerX =
       timeItems.length === 1
-        ? BOARD_WIDTH / 2
-        : TIMELINE_MARGIN_X + (((item.timestamp as number) - minTimestamp) / range) * usableWidth;
-    const x = clamp(centerX - width / 2, 0, BOARD_WIDTH - width);
+        ? laneLeft + TIMELINE_LANE_WIDTH / 2
+        : laneLeft +
+          TIMELINE_MARGIN_X +
+          (((item.timestamp as number) - minTimestamp) / range) * usableWidth;
+    const x = clamp(centerX - width / 2, laneLeft, laneRight - width);
     xById.set(item.id, x);
   }
 
-  return { xById, minTimestamp, maxTimestamp };
+  return { xById, laneLeft, laneRight, minTimestamp, maxTimestamp };
 }
 
 function randomPaperColor(): string {
@@ -292,6 +298,11 @@ export function CanvasBoard({
     [value.offsetX, value.offsetY, value.zoom],
   );
 
+  const svgWorldTransform = useMemo(
+    () => `translate(${value.offsetX} ${value.offsetY}) scale(${value.zoom})`,
+    [value.offsetX, value.offsetY, value.zoom],
+  );
+
   useEffect(() => {
     valueRef.current = value;
   }, [value]);
@@ -305,10 +316,7 @@ export function CanvasBoard({
     const x = (clientX - rect.left - value.offsetX) / value.zoom;
     const y = (clientY - rect.top - value.offsetY) / value.zoom;
 
-    return {
-      x: clamp(x, 0, BOARD_WIDTH),
-      y: clamp(y, 0, BOARD_HEIGHT),
-    };
+    return { x, y };
   };
 
   const patchCanvas = useCallback(
@@ -319,6 +327,69 @@ export function CanvasBoard({
     },
     [onChange],
   );
+
+  const centerOnContent = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const rect = viewport.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    const canvas = valueRef.current;
+    const zoom = canvas.zoom;
+
+    const timeline = computeTimelineLayout(canvas.items);
+    const hasTimelineItems = canvas.items.some((item) => typeof item.timestamp === "number");
+
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+
+    canvas.items.forEach((item) => {
+      const x = timeline.xById.get(item.id) ?? item.x;
+      const y = item.y;
+      const w = canvasItemWidth(item);
+      const h = canvasItemHeight(item);
+
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x + w);
+      bottom = Math.max(bottom, y + h);
+    });
+
+    canvas.shapes.forEach((shape) => {
+      const rect = shapeRect(shape);
+      left = Math.min(left, rect.left);
+      top = Math.min(top, rect.top);
+      right = Math.max(right, rect.left + rect.width);
+      bottom = Math.max(bottom, rect.top + rect.height);
+    });
+
+    if (hasTimelineItems) {
+      left = Math.min(left, timeline.laneLeft);
+      right = Math.max(right, timeline.laneRight);
+      top = Math.min(top, TIMELINE_Y);
+      bottom = Math.max(bottom, TIMELINE_Y);
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
+      patchCanvas({ zoom: 1, offsetX: 20, offsetY: 20 });
+      return;
+    }
+
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+
+    patchCanvas({
+      offsetX: rect.width / 2 - centerX * zoom,
+      offsetY: rect.height / 2 - centerY * zoom,
+    });
+  }, [patchCanvas]);
 
   const selectSingle = useCallback(
     (kind: "item" | "shape", id: string) => {
@@ -604,8 +675,8 @@ export function CanvasBoard({
 
       return {
         ...current,
-        x2: clamp(nextX, 0, BOARD_WIDTH),
-        y2: clamp(nextY, 0, BOARD_HEIGHT),
+        x2: nextX,
+        y2: nextY,
       };
     });
 
@@ -765,6 +836,18 @@ export function CanvasBoard({
       }
 
       const key = event.key.toLowerCase();
+
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        event.shiftKey &&
+        event.code === "Digit1"
+      ) {
+        event.preventDefault();
+        centerOnContent();
+        return;
+      }
 
       if ((event.metaKey || event.ctrlKey) && key === "z") {
         event.preventDefault();
@@ -940,12 +1023,11 @@ export function CanvasBoard({
               if (!selectedItems.has(item.id)) {
                 return item;
               }
-              const width = canvasItemWidth(item);
               const nextX =
                 typeof item.timestamp === "number"
                   ? item.x
-                  : clamp(item.x + dx, 0, BOARD_WIDTH - width);
-              const nextY = clamp(item.y + dy, 0, BOARD_HEIGHT - 60);
+                  : item.x + dx;
+              const nextY = item.y + dy;
               return { ...item, x: nextX, y: nextY };
             }),
             shapes: valueRef.current.shapes.map((shape) => {
@@ -954,10 +1036,10 @@ export function CanvasBoard({
               }
               const next = {
                 ...shape,
-                x1: clamp(shape.x1 + dx, 0, BOARD_WIDTH),
-                y1: clamp(shape.y1 + dy, 0, BOARD_HEIGHT),
-                x2: clamp(shape.x2 + dx, 0, BOARD_WIDTH),
-                y2: clamp(shape.y2 + dy, 0, BOARD_HEIGHT),
+                x1: shape.x1 + dx,
+                y1: shape.y1 + dy,
+                x2: shape.x2 + dx,
+                y2: shape.y2 + dy,
               };
               return next;
             }),
@@ -1004,6 +1086,7 @@ export function CanvasBoard({
       window.removeEventListener("keyup", onKeyUp);
     };
   }, [
+    centerOnContent,
     clearSelection,
     editingItemId,
     onRedo,
@@ -1321,9 +1404,8 @@ export function CanvasBoard({
             return item;
           }
 
-          const w = canvasItemWidth(item);
-          const nextX = entry.lockedX ? item.x : clamp(entry.originX + dx, 0, BOARD_WIDTH - w);
-          const nextY = clamp(entry.originY + dy, 0, BOARD_HEIGHT - 60);
+          const nextX = entry.lockedX ? item.x : entry.originX + dx;
+          const nextY = entry.originY + dy;
 
           return {
             ...item,
@@ -1340,10 +1422,10 @@ export function CanvasBoard({
 
           return {
             ...shape,
-            x1: clamp(entry.originX1 + dx, 0, BOARD_WIDTH),
-            y1: clamp(entry.originY1 + dy, 0, BOARD_HEIGHT),
-            x2: clamp(entry.originX2 + dx, 0, BOARD_WIDTH),
-            y2: clamp(entry.originY2 + dy, 0, BOARD_HEIGHT),
+            x1: entry.originX1 + dx,
+            y1: entry.originY1 + dy,
+            x2: entry.originX2 + dx,
+            y2: entry.originY2 + dy,
           };
         });
 
@@ -1730,6 +1812,15 @@ export function CanvasBoard({
         <button
           type="button"
           className="ghost-button"
+          onClick={centerOnContent}
+          title="Shift + 1"
+        >
+          定位内容
+        </button>
+
+        <button
+          type="button"
+          className="ghost-button"
           onClick={() => setShowClearConfirm(true)}
         >
           清空画板
@@ -1738,7 +1829,7 @@ export function CanvasBoard({
 
       <p className="muted">
         {selectedEntityLabel}。Ctrl/⌘ + 滚轮缩放；滚轮平移；Space 拖拽平移；Shift 约束方向；Alt
-        拖拽复制；Ctrl/⌘+Z 撤销，Shift+Z 重做；Ctrl/⌘+C/V 复制粘贴。
+        拖拽复制；Shift+1 定位内容；Ctrl/⌘+Z 撤销，Shift+Z 重做；Ctrl/⌘+C/V 复制粘贴。
       </p>
 
       <div
@@ -1765,54 +1856,58 @@ export function CanvasBoard({
         onDrop={handleDrop}
         onWheel={handleWheel}
       >
-        <div className="canvas-board" style={boardStyle}>
-          <svg
-            ref={svgRef}
-            className="canvas-svg"
-            width={BOARD_WIDTH}
-            height={BOARD_HEIGHT}
-            onPointerDown={handleBoardPointerDown}
-            onPointerMove={handleBoardPointerMove}
-            onPointerUp={(event) => finishInteraction(event)}
-            onPointerCancel={(event) => finishInteraction(event)}
-          >
-            <rect
-              x={0}
-              y={0}
-              width={BOARD_WIDTH}
-              height={BOARD_HEIGHT}
-              fill="transparent"
-              onClick={() => {
-                if (tool === "select") {
-                  clearSelection();
-                }
-              }}
-            />
+        <svg
+          ref={svgRef}
+          className="canvas-svg"
+          width="100%"
+          height="100%"
+          onPointerDown={handleBoardPointerDown}
+          onPointerMove={handleBoardPointerMove}
+          onPointerUp={(event) => finishInteraction(event)}
+          onPointerCancel={(event) => finishInteraction(event)}
+        >
+          <rect
+            x={0}
+            y={0}
+            width="100%"
+            height="100%"
+            fill="transparent"
+            onClick={() => {
+              if (tool === "select") {
+                clearSelection();
+              }
+            }}
+          />
 
+          <g transform={svgWorldTransform}>
             <g className="timeline-lane">
               <line
-                x1={34}
+                x1={timelineLayout.laneLeft + 34}
                 y1={TIMELINE_Y}
-                x2={BOARD_WIDTH - 34}
+                x2={timelineLayout.laneRight - 34}
                 y2={TIMELINE_Y}
                 stroke={TIMELINE_STROKE}
                 strokeWidth={2}
               />
-              <text x={42} y={TIMELINE_Y - 10} className="timeline-lane-label">
+              <text
+                x={timelineLayout.laneLeft + 42}
+                y={TIMELINE_Y - 10}
+                className="timeline-lane-label"
+              >
                 时间线
               </text>
               {typeof timelineLayout.minTimestamp === "number" &&
               typeof timelineLayout.maxTimestamp === "number" ? (
                 <>
                   <text
-                    x={TIMELINE_MARGIN_X}
+                    x={timelineLayout.laneLeft + TIMELINE_MARGIN_X}
                     y={TIMELINE_Y + 18}
                     className="timeline-lane-label"
                   >
                     {formatTimeLabel(timelineLayout.minTimestamp)}
                   </text>
                   <text
-                    x={BOARD_WIDTH - TIMELINE_MARGIN_X}
+                    x={timelineLayout.laneRight - TIMELINE_MARGIN_X}
                     y={TIMELINE_Y + 18}
                     textAnchor="end"
                     className="timeline-lane-label"
@@ -1877,8 +1972,8 @@ export function CanvasBoard({
                 className="snap-guide"
                 x1={snapGuides.x}
                 x2={snapGuides.x}
-                y1={0}
-                y2={BOARD_HEIGHT}
+                y1={-GUIDE_EXTENT}
+                y2={GUIDE_EXTENT}
                 stroke="#4f75ff"
                 strokeWidth={1}
                 strokeDasharray="6 6"
@@ -1887,8 +1982,8 @@ export function CanvasBoard({
             {snapGuides?.y !== undefined ? (
               <line
                 className="snap-guide"
-                x1={0}
-                x2={BOARD_WIDTH}
+                x1={-GUIDE_EXTENT}
+                x2={GUIDE_EXTENT}
                 y1={snapGuides.y}
                 y2={snapGuides.y}
                 stroke="#4f75ff"
@@ -1910,8 +2005,10 @@ export function CanvasBoard({
                 strokeDasharray="6 5"
               />
             ) : null}
-          </svg>
+          </g>
+        </svg>
 
+        <div className="canvas-board" style={boardStyle}>
           {value.items.map((item) => {
             const isSelected = selection?.itemIds.includes(item.id) ?? false;
             const isActiveLink =
@@ -2078,7 +2175,6 @@ export function CanvasBoard({
               </div>
             );
           })}
-
         </div>
       </div>
 

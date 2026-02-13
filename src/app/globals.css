@@ -1486,6 +1486,7 @@ button.agg-chip {
 }
 
 .canvas-viewport {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 10px;
   background:
@@ -1513,14 +1514,19 @@ button.agg-chip {
 }
 
 .canvas-board {
-  position: relative;
-  width: 3200px;
-  height: 1800px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  will-change: transform;
+  z-index: 2;
 }
 
 .canvas-svg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
 }
 
 .snap-guide,
@@ -1561,6 +1567,7 @@ button.agg-chip {
   padding: 10px;
   cursor: grab;
   touch-action: none;
+  pointer-events: auto;
 }
 
 .canvas-card {
