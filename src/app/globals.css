@@ -560,6 +560,13 @@ a {
   flex-direction: column;
 }
 
+.search-box,
+.notes-box,
+.board-box {
+  /* Prevent split panes from painting into adjacent sections when the panel is resized smaller than its content. */
+  overflow: hidden;
+}
+
 .tree-box,
 .viewer-box,
 .board-box {
@@ -1594,7 +1601,7 @@ button.agg-chip {
   position: relative;
   margin-top: 6px;
   flex: 1;
-  min-height: 130px;
+  min-height: 0;
 }
 
 .notes-editor {

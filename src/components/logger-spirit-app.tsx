@@ -4217,7 +4217,7 @@ export function LoggerSpiritApp() {
 	                        {searchResults.length === 0 ? (
 	                          <div
 	                            className="search-results compact"
-	                            style={{ height: searchResultsHeight }}
+	                            style={{ flex: `0 1 ${searchResultsHeight}px` }}
 	                          >
 	                            <p className="muted">
                                 {searching ? "搜索中..." : hasSearchInput ? "暂无命中结果。" : "请输入关键字开始搜索。"}
@@ -4229,7 +4229,7 @@ export function LoggerSpiritApp() {
 	                        ) : (
 	                          <VirtualList
 	                            className="search-results compact"
-	                            style={{ height: searchResultsHeight }}
+	                            style={{ flex: `0 1 ${searchResultsHeight}px` }}
 	                            itemCount={searchResults.length}
 	                            itemHeight={92}
 	                            overscan={10}
