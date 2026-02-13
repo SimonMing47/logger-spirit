@@ -1869,6 +1869,10 @@ export function LoggerSpiritApp() {
         return;
       }
 
+      // Mark that indexing work has started even if React batches away the intermediate
+      // "indexing: true" render (used for pending search refresh).
+      indexingWasActiveRef.current = true;
+
       setIndexStatus({
         indexing: true,
         indexedFiles: previousSignatures.size,
@@ -1877,6 +1881,8 @@ export function LoggerSpiritApp() {
       });
 
       const payload: SearchIndexFilePayload[] = [];
+      const nextSignatures = new Map(previousSignatures);
+      removedFileKeys.forEach((fileKey) => nextSignatures.delete(fileKey));
 
       for (const entry of changedFiles) {
         try {
@@ -1894,6 +1900,9 @@ export function LoggerSpiritApp() {
             filePath: entry.file.path,
             text: decodeText(bytes),
           });
+
+          // Only mark a file as indexed after we have successfully read it.
+          nextSignatures.set(entry.fileKey, entry.signature);
         } catch {
           continue;
         }
@@ -1908,7 +1917,7 @@ export function LoggerSpiritApp() {
         totalFiles: allTextFiles.length,
       });
 
-      indexedSignaturesRef.current.set(workspace.id, currentSignatures);
+      indexedSignaturesRef.current.set(workspace.id, nextSignatures);
     },
     [directoryHandle],
   );
@@ -1979,8 +1988,15 @@ export function LoggerSpiritApp() {
     }
 
     setSearching(true);
+    // If the index isn't ready yet, kick off indexing and defer the actual search until
+    // we receive the next indexStatus update. This avoids "always empty" results when the
+    // user searches immediately after importing archives.
     if (indexStatus.indexing || indexStatus.indexedFiles < indexableFileCount) {
       pendingSearchAfterIndexRef.current = true;
+      if (!indexStatus.indexing && activeWorkspaceRef.current) {
+        void buildSearchIndex(activeWorkspaceRef.current);
+      }
+      return;
     }
 
     searchWorkerRef.current.postMessage({
@@ -1992,6 +2008,7 @@ export function LoggerSpiritApp() {
     });
   }, [
     activeManifestId,
+    buildSearchIndex,
     expandedNodes,
     hasSearchInput,
     indexStatus.indexedFiles,
@@ -2017,7 +2034,6 @@ export function LoggerSpiritApp() {
 
   useEffect(() => {
     if (indexStatus.indexing) {
-      indexingWasActiveRef.current = true;
       return;
     }
 
@@ -2027,13 +2043,21 @@ export function LoggerSpiritApp() {
 
     indexingWasActiveRef.current = false;
 
-    if (pendingSearchAfterIndexRef.current) {
-      pendingSearchAfterIndexRef.current = false;
-      if (hasSearchInput) {
-        executeSearch();
-      }
+    if (!pendingSearchAfterIndexRef.current) {
+      return;
     }
-  }, [executeSearch, hasSearchInput, indexStatus.indexing]);
+
+    pendingSearchAfterIndexRef.current = false;
+    if (hasSearchInput) {
+      executeSearch();
+    }
+  }, [
+    executeSearch,
+    hasSearchInput,
+    indexStatus.indexedFiles,
+    indexStatus.indexing,
+    indexStatus.totalFiles,
+  ]);
 
   const openLogTab = useCallback(
     ({
