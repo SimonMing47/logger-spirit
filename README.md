@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Logger Spirit
 
-## Getting Started
+纯前端日志分析工作台（Next.js + File System Access API）：
 
-First, run the development server:
+- 拖拽导入 zip / tar.gz（支持多层嵌套 zip、zip in zip、zip in tar.gz）。
+- 多日志空间并存（主存储目录下多个 workspace 子目录）。
+- 左侧日志树 + 中间多 Tab 日志查看 + 右侧笔记与画板。
+- Web Worker 增量索引、跨文件搜索、正则/实时搜索、上下文窗口。
+- 自动抽取 timestamp/traceId/spanId，生成跨文件时间线。
+- 按 pod/container/namespace/level/time 过滤与聚合。
+- 异常模式自动打标签（timeout、connection refused、retry storm 等）。
+- 会话快照导出（树状态 + 搜索条件 + 笔记 + 画板）。
+
+## 环境要求
+
+- Node.js 20+
+- Chromium 内核浏览器（Chrome / Edge，需支持 File System Access API）
+
+## 本地运行
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开 [http://localhost:3000](http://localhost:3000)。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 常用命令
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run build
+```
 
-## Learn More
+## 生成并验证样例压缩包
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+bash scripts/generate-sample-archives.sh
+npx --yes tsx scripts/validate-sample-archives.ts
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+生成文件位于 `sample-data/generated/`：
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `incident-alpha-2026-02-12.zip`
+- `incident-beta-2026-02-12.zip`
+- `search-hints.json`
 
-## Deploy on Vercel
+## 使用流程
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 点击“选择主存储目录”并授权目录读写。
+2. 新建日志空间（会在主存储目录下创建 workspace 子目录）。
+3. 拖拽或选择压缩包导入，左侧自动展开日志树。
+4. 在中栏进行跨文件搜索（支持正则、实时、上下文、过滤）。
+5. 命中结果可打开文件定位行，或“一键固定到画板”。
+6. 在右侧记录笔记、拖拽线索到画板，进行链路梳理。
+7. 导出会话快照用于复盘或协作。

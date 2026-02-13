@@ -1,0 +1,15 @@
+{
+  "queries": [
+    "PAYMENT_TIMEOUT",
+    "DB_CONN_REFUSED",
+    "KafkaOffsetLag",
+    "INVENTORY_STALE",
+    "REDIS_TIMEOUT",
+    "beta-trace-1002",
+    "alpha-trace-0001"
+  ],
+  "archives": [
+    "incident-alpha-2026-02-12.zip",
+    "incident-beta-2026-02-12.zip"
+  ]
+}
