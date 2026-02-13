@@ -788,6 +788,7 @@ export function LoggerSpiritApp() {
 
   const pendingSearchAfterIndexRef = useRef(false);
   const indexingWasActiveRef = useRef(false);
+  const expandedNodesRef = useRef<Set<string>>(new Set());
 
   const hasSearchInput = useMemo(() => {
     if (searchQuery.trim()) {
@@ -1984,7 +1985,7 @@ export function LoggerSpiritApp() {
     latestSearchRequestIdRef.current = requestId;
 
     if (!searchOptions.realtime) {
-      setTreeAutoExpandBackup([...expandedNodes]);
+      setTreeAutoExpandBackup([...expandedNodesRef.current]);
     }
 
     setSearching(true);
@@ -2009,7 +2010,6 @@ export function LoggerSpiritApp() {
   }, [
     activeManifestId,
     buildSearchIndex,
-    expandedNodes,
     hasSearchInput,
     indexStatus.indexedFiles,
     indexStatus.indexing,
@@ -2031,6 +2031,10 @@ export function LoggerSpiritApp() {
       window.clearTimeout(timer);
     };
   }, [activeManifestId, executeSearch, searchOptions.realtime]);
+
+  useEffect(() => {
+    expandedNodesRef.current = expandedNodes;
+  }, [expandedNodes]);
 
   useEffect(() => {
     if (indexStatus.indexing) {
