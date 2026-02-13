@@ -167,7 +167,7 @@ const DEFAULT_CANVAS: CanvasState = {
 
 const CANVAS_HISTORY_LIMIT = 120;
 
-type ThemeMode = "sky" | "graphite" | "forest";
+type ThemeMode = "sky" | "graphite" | "forest" | "cyberpunk";
 
 type UiPrefs = {
   leftWidth: number;
@@ -928,7 +928,12 @@ export function LoggerSpiritApp() {
     }
 
     const savedTheme = window.localStorage.getItem(LOCAL_STORAGE_THEME_KEY);
-    if (savedTheme === "sky" || savedTheme === "graphite" || savedTheme === "forest") {
+    if (
+      savedTheme === "sky" ||
+      savedTheme === "graphite" ||
+      savedTheme === "forest" ||
+      savedTheme === "cyberpunk"
+    ) {
       setTheme(savedTheme);
     }
   }, [clientReady]);
@@ -3433,6 +3438,12 @@ export function LoggerSpiritApp() {
       run: () => setTheme("forest"),
     },
     {
+      id: "theme-cyberpunk",
+      title: "主题：赛博朋克",
+      enabled: theme !== "cyberpunk",
+      run: () => setTheme("cyberpunk"),
+    },
+    {
       id: "pick-storage",
       title: "选择主存储目录",
       enabled: true,
@@ -3508,6 +3519,7 @@ export function LoggerSpiritApp() {
             <option value="sky">云蓝</option>
             <option value="graphite">石墨</option>
             <option value="forest">森绿</option>
+            <option value="cyberpunk">赛博朋克</option>
           </select>
         </div>
 
@@ -5102,7 +5114,7 @@ export function LoggerSpiritApp() {
 
       <footer className="status-footer">
         <span className="status-footer-text">{status}</span>
-        <span className="status-footer-meta">@CopyRight：codex & 00477369；</span>
+        <span className="status-footer-meta">@CopyRight：codex & m00477369</span>
       </footer>
     </div>
   );

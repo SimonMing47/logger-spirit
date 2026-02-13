@@ -3,6 +3,7 @@
   --bg-1: #e7eeff;
   --bg-glow-a: #deebff;
   --bg-glow-b: #d5ffe9;
+  --page-pattern: url("/patterns/sky.svg");
   --font-space-grotesk: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --font-ibm-plex-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -16,6 +17,8 @@
   --text-muted: #556286;
   --accent: #1e5eff;
   --danger: #bf3f4f;
+  --hover-bg: rgba(210, 226, 255, 0.56);
+  --hover-bg-danger: rgba(254, 228, 234, 0.74);
   --radius: 14px;
   --glass-blur: 18px;
   --shadow-panel: 0 18px 50px rgba(24, 44, 98, 0.12);
@@ -37,10 +40,11 @@ body {
 body {
   min-height: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at 20% 0%, var(--bg-glow-a) 0%, transparent 35%),
-    radial-gradient(circle at 85% 16%, var(--bg-glow-b) 0%, transparent 34%),
-    linear-gradient(150deg, var(--bg-0), var(--bg-1));
+  background-color: var(--bg-0);
+  background-image: var(--page-pattern);
+  background-repeat: repeat;
+  background-attachment: fixed;
+  transition: background-color 220ms ease, color 220ms ease;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -57,6 +61,7 @@ body[data-theme="graphite"] {
   --bg-1: #1b2536;
   --bg-glow-a: #24324a;
   --bg-glow-b: #203a39;
+  --page-pattern: url("/patterns/graphite.svg");
   --panel: rgba(27, 38, 56, 0.9);
   --panel-strong: rgba(32, 45, 66, 0.96);
   --panel-solid: rgba(34, 48, 70, 0.96);
@@ -65,6 +70,8 @@ body[data-theme="graphite"] {
   --text: #e3ebff;
   --text-muted: #aab7d2;
   --accent: #69a3ff;
+  --hover-bg: rgba(105, 163, 255, 0.18);
+  --hover-bg-danger: rgba(255, 110, 136, 0.18);
 }
 
 body[data-theme="forest"] {
@@ -72,6 +79,7 @@ body[data-theme="forest"] {
   --bg-1: #deefe2;
   --bg-glow-a: #d6efe0;
   --bg-glow-b: #d6ece8;
+  --page-pattern: url("/patterns/forest.svg");
   --panel: rgba(255, 255, 255, 0.86);
   --panel-strong: rgba(255, 255, 255, 0.96);
   --panel-solid: rgba(255, 255, 255, 0.98);
@@ -80,6 +88,8 @@ body[data-theme="forest"] {
   --text: #1f3a2f;
   --text-muted: #4f6d60;
   --accent: #2b8f60;
+  --hover-bg: rgba(43, 143, 96, 0.14);
+  --hover-bg-danger: rgba(191, 63, 79, 0.14);
 }
 
 body.is-resizing {
@@ -90,6 +100,130 @@ body.is-resizing {
 body.is-resizing-horizontal {
   cursor: row-resize;
   user-select: none;
+}
+
+body[data-theme="cyberpunk"] {
+  --bg-0: #050712;
+  --bg-1: #0a0f1b;
+  --bg-glow-a: #0b1420;
+  --bg-glow-b: #0b1f1a;
+  --page-pattern: url("/patterns/cyberpunk.svg");
+  --panel: rgba(10, 16, 28, 0.74);
+  --panel-strong: rgba(10, 16, 28, 0.92);
+  --panel-solid: rgba(8, 12, 22, 0.96);
+  --line: rgba(0, 229, 255, 0.25);
+  --line-strong: rgba(57, 255, 182, 0.42);
+  --text: #e6fff6;
+  --text-muted: rgba(230, 255, 246, 0.72);
+  --accent: #39ffb6;
+  --danger: #ff4d7a;
+  --hover-bg: rgba(57, 255, 182, 0.12);
+  --hover-bg-danger: rgba(255, 77, 122, 0.16);
+  --shadow-panel: 0 22px 70px rgba(0, 0, 0, 0.42);
+  font-family: var(--font-ibm-plex-mono);
+}
+
+body[data-theme="graphite"] .primary-button,
+body[data-theme="forest"] .primary-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+body[data-theme="cyberpunk"] .primary-button {
+  background: rgba(57, 255, 182, 0.14);
+  border-color: rgba(57, 255, 182, 0.55);
+  color: var(--accent);
+  box-shadow:
+    0 0 0 1px rgba(57, 255, 182, 0.1) inset,
+    0 12px 28px rgba(0, 229, 255, 0.12);
+}
+
+body[data-theme="cyberpunk"] .primary-button:not(:disabled):hover {
+  box-shadow:
+    0 0 0 1px rgba(57, 255, 182, 0.16) inset,
+    0 16px 34px rgba(0, 229, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+body[data-theme="cyberpunk"] .ghost-button,
+body[data-theme="cyberpunk"] .tool-button {
+  background: rgba(8, 12, 22, 0.86);
+  border-color: rgba(0, 229, 255, 0.32);
+  color: var(--text);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.06) inset,
+    0 10px 22px rgba(0, 0, 0, 0.4);
+}
+
+body[data-theme="cyberpunk"] .tool-button.active,
+body[data-theme="cyberpunk"] .ghost-button.active {
+  background: rgba(57, 255, 182, 0.12);
+  border-color: rgba(57, 255, 182, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(57, 255, 182, 0.12) inset,
+    0 14px 30px rgba(0, 229, 255, 0.14);
+}
+
+body[data-theme="cyberpunk"] .viewer-content {
+  background: rgba(3, 6, 12, 0.95);
+  color: #d7ffe9;
+  border-color: rgba(0, 229, 255, 0.22);
+}
+
+body[data-theme="cyberpunk"] .log-hit {
+  background: rgba(255, 58, 242, 0.22);
+  box-shadow: 0 0 0 1px rgba(255, 58, 242, 0.14) inset;
+}
+
+body[data-theme="cyberpunk"] .log-find-hit {
+  background: rgba(57, 255, 182, 0.18);
+  box-shadow: 0 0 0 1px rgba(57, 255, 182, 0.12) inset;
+}
+
+body[data-theme="cyberpunk"] .canvas-viewport {
+  background:
+    linear-gradient(0deg, rgba(0, 229, 255, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.16) 1px, transparent 1px),
+    #040711;
+  background-size: 24px 24px;
+  border-color: rgba(0, 229, 255, 0.24);
+}
+
+body[data-theme="cyberpunk"] .tag-chip {
+  border-color: rgba(0, 229, 255, 0.34);
+  background: rgba(0, 229, 255, 0.08);
+  color: rgba(214, 255, 252, 0.92);
+}
+
+body[data-theme="cyberpunk"] .tag-chip.alert {
+  border-color: rgba(255, 58, 242, 0.38);
+  background: rgba(255, 58, 242, 0.08);
+  color: rgba(255, 210, 252, 0.92);
+}
+
+body[data-theme="cyberpunk"] .agg-chip {
+  border-color: rgba(57, 255, 182, 0.34);
+  background: rgba(57, 255, 182, 0.08);
+  color: rgba(214, 255, 246, 0.92);
+}
+
+body[data-theme="cyberpunk"] .agg-chip.passive {
+  border-color: rgba(255, 58, 242, 0.3);
+  background: rgba(255, 58, 242, 0.06);
+  color: rgba(255, 210, 252, 0.9);
+}
+
+body[data-theme="cyberpunk"] .notes-link-token {
+  border-color: rgba(57, 255, 182, 0.34);
+  background: rgba(57, 255, 182, 0.08);
+  color: var(--accent);
+}
+
+body[data-theme="cyberpunk"] .tree-hit-badge {
+  border-color: rgba(57, 255, 182, 0.34);
+  background: rgba(57, 255, 182, 0.08);
+  color: rgba(214, 255, 246, 0.92);
 }
 
 a {
@@ -173,7 +307,12 @@ a {
 .tool-button {
   padding: 7px 12px;
   cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
 }
 
 .primary-button {
@@ -228,6 +367,8 @@ a {
   padding: 7px 10px;
   background: var(--panel-strong);
   color: var(--text);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
 .theme-select {
@@ -240,10 +381,9 @@ a {
 }
 
 .status-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 10px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
@@ -258,10 +398,15 @@ a {
 
 .status-footer-text {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-footer-meta {
   white-space: nowrap;
+  justify-self: center;
+  text-align: center;
 }
 
 .booting,
@@ -269,8 +414,8 @@ a {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: 18px;
-  background: #fff;
-  color: #203670;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
 .workspace-layout {
@@ -490,7 +635,7 @@ a {
 }
 
 .workspace-tab-action:hover {
-  background: rgba(210, 226, 255, 0.56);
+  background: var(--hover-bg);
 }
 
 .workspace-tab-item.active {
@@ -513,7 +658,7 @@ a {
 }
 
 .workspace-tab-main:hover {
-  background: rgba(210, 226, 255, 0.56);
+  background: var(--hover-bg);
 }
 
 .workspace-tab-delete {
@@ -527,19 +672,23 @@ a {
 }
 
 .workspace-tab-delete:hover {
-  background: rgba(254, 228, 234, 0.74);
+  background: var(--hover-bg-danger);
 }
 
 .workspace-tab-add {
-  border: 1px dashed #6d8fde;
-  background: #f1f6ff;
-  color: #2c58ba;
+  border: 1px dashed var(--line-strong);
+  background: var(--panel);
+  color: var(--accent);
   border-radius: 9px;
   min-width: 32px;
   min-height: 32px;
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+}
+
+.workspace-tab-add:hover {
+  background: var(--panel-solid);
 }
 
 .workspace-tab-add:disabled {
@@ -553,7 +702,7 @@ a {
   gap: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--panel-solid);
   padding: 4px;
 }
 
@@ -575,7 +724,7 @@ a {
 
 .workspace-item-main:hover,
 .workspace-item-delete:hover {
-  background: rgba(209, 225, 255, 0.5);
+  background: var(--hover-bg);
 }
 
 .workspace-item-delete {
@@ -593,7 +742,7 @@ a {
   border-radius: 14px;
   padding: 12px;
   margin: 12px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--panel);
   cursor: pointer;
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
@@ -623,7 +772,7 @@ a {
   height: 44px;
   border-radius: 12px;
   border: 1px solid rgba(120, 150, 230, 0.42);
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--panel-solid);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -686,7 +835,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 10px;
   margin-top: 8px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--panel-solid);
 }
 
 .root-header,
@@ -920,7 +1069,7 @@ a {
 .aggregation-box {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--panel);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -971,7 +1120,7 @@ button.agg-chip {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--panel);
   padding: 8px;
 }
 
@@ -986,7 +1135,7 @@ button.agg-chip {
   padding: 8px;
   border: 1px dashed var(--line);
   border-radius: 10px;
-  background: #fff;
+  background: var(--panel-solid);
   overflow: hidden;
 }
 
@@ -1072,7 +1221,7 @@ button.agg-chip {
 .search-context {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--panel-solid);
   padding: 6px;
 }
 
@@ -1099,7 +1248,7 @@ button.agg-chip {
   margin-top: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.64);
+  background: var(--panel);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -1148,7 +1297,7 @@ button.agg-chip {
 
 .timeline-item {
   border: 1px dashed var(--line);
-  background: #fff;
+  background: var(--panel-solid);
   border-radius: 8px;
   padding: 6px;
   cursor: pointer;
@@ -1186,13 +1335,13 @@ button.agg-chip {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 5px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--panel);
 }
 
 .tab-item {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel-solid);
   display: flex;
   align-items: center;
   min-width: 150px;
@@ -1247,7 +1396,7 @@ button.agg-chip {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--panel);
 }
 
 .viewer-find-input {
@@ -1407,7 +1556,7 @@ button.agg-chip {
   height: 28px;
   border-radius: 8px;
   border: 1px solid var(--line-strong);
-  background: #fff;
+  background: var(--panel-solid);
   padding: 1px;
 }
 
@@ -1425,7 +1574,7 @@ button.agg-chip {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 10px;
-  background: #fff;
+  background: var(--panel-solid);
   color: var(--text);
   line-height: 1.45;
   font-size: 13px;
@@ -1460,7 +1609,7 @@ button.agg-chip {
   overflow: auto;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--panel-solid);
   box-shadow: 0 12px 24px rgba(23, 40, 86, 0.22);
   padding: 6px;
   display: flex;
@@ -1528,6 +1677,7 @@ button.agg-chip {
 
 .canvas-wrapper {
   margin-top: 8px;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1538,7 +1688,13 @@ button.agg-chip {
 .canvas-toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: 0 12px 26px rgba(20, 35, 78, 0.08);
 }
 
 .color-picker,
@@ -1556,7 +1712,7 @@ button.agg-chip {
   height: 30px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel-solid);
   padding: 2px;
 }
 
@@ -1661,7 +1817,7 @@ button.agg-chip {
   font-weight: 600;
   border: 1px dashed rgba(96, 128, 212, 0.4);
   padding-right: 28px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--panel-solid);
 }
 
 .canvas-card p,
@@ -1682,8 +1838,8 @@ button.agg-chip {
   font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 12px;
   line-height: 1.35;
-  background: rgba(255, 255, 255, 0.96);
-  color: #243663;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
 .canvas-comment {
@@ -1721,16 +1877,16 @@ button.agg-chip {
   font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 12px;
   line-height: 1.35;
-  background: rgba(255, 255, 255, 0.96);
-  color: #243663;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
 .canvas-comment-preview {
   margin-top: 6px;
   font-size: 11px;
-  color: #3b4b7a;
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px dashed rgba(96, 128, 212, 0.35);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px dashed var(--line);
   border-radius: 8px;
   padding: 6px 8px;
   white-space: pre-wrap;
@@ -1752,11 +1908,11 @@ button.agg-chip {
   display: inline-flex;
   align-items: center;
   font-size: 10px;
-  color: #3f5eab;
-  border: 1px solid #9cb4e7;
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--panel-solid);
   cursor: pointer;
 }
 
@@ -1887,14 +2043,14 @@ button.agg-chip {
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 14px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--panel-solid);
   color: var(--text);
 }
 
 .command-list {
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--panel);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -1904,9 +2060,9 @@ button.agg-chip {
 }
 
 .command-item {
-  border: 1px solid rgba(149, 169, 223, 0.55);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--panel-solid);
   color: inherit;
   padding: 8px 10px;
   cursor: pointer;
