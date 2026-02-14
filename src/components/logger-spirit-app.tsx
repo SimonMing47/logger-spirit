@@ -1992,10 +1992,10 @@ export function LoggerSpiritApp() {
     }
 
     setSearching(true);
-    // If the index is actively building, defer the search until it finishes.
+    // If the index is actively building, keep searching on the already-indexed subset
+    // (if any) and refresh once indexing completes.
     if (indexStatus.indexing) {
       pendingSearchAfterIndexRef.current = true;
-      return;
     }
 
     // Kick off indexing if no files have been indexed yet, but don't block the
@@ -2007,7 +2007,6 @@ export function LoggerSpiritApp() {
       if (activeWorkspaceRef.current) {
         void buildSearchIndex(activeWorkspaceRef.current);
       }
-      return;
     }
 
     searchWorkerRef.current.postMessage({
@@ -2029,7 +2028,7 @@ export function LoggerSpiritApp() {
   ]);
 
   useEffect(() => {
-    if (!activeManifestId) {
+    if (!activeManifestId || !searchOptions.realtime) {
       return;
     }
 
