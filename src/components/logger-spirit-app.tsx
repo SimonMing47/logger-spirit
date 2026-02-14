@@ -1808,6 +1808,9 @@ export function LoggerSpiritApp() {
         setSearchAggregation(payload.aggregations);
 
         if (payload.results.length > 0) {
+          // Ensure search insights panel is shown when results are available
+          setShowSearchInsights(true);
+          
           setExpandedNodes((current) => {
             const next = new Set(current);
             payload.results.forEach((result) => {
