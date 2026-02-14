@@ -2026,7 +2026,7 @@ export function LoggerSpiritApp() {
   ]);
 
   useEffect(() => {
-    if (!activeManifestId || !searchOptions.realtime) {
+    if (!activeManifestId) {
       return;
     }
 
