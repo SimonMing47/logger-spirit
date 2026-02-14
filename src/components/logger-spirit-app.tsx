@@ -4002,35 +4002,50 @@ export function LoggerSpiritApp() {
                       </button>
                     </div>
 
-                    <div className="search-meta">
-                      <p className="muted">
-                        命中 {searchResults.length} 条，索引 {indexStatus.indexedFiles}/{indexableFileCount} 文件
-                        {hasSearchInput && !searchIsFresh ? "（等待搜索）" : ""}。
-                      </p>
-                      <p className="muted">
-                        当前关键字: <strong>{searchQuery.trim() || "-"}</strong>
-                        {lastSearchAt ? (
-                          <>
-                            {" "}
-                            | 上次执行: <strong>{lastSearchQuery || "-"}</strong>
-                          </>
-                        ) : null}
-                      </p>
-                      {!searchOptions.realtime ? (
-                        <p className="muted">
-                          实时搜索已关闭，按 Enter/点击搜索开始。
-                          <button
-                            type="button"
-                            className="ghost-button tiny"
-                            onClick={() => {
-                              setSearchOptions((current) => ({ ...current, realtime: true }));
-                            }}
-                          >
-                            开启实时
-                          </button>
-                        </p>
-                      ) : null}
-                      {searchError ? <p className="error-text">{searchError}</p> : null}
+                    <div className="search-status">
+                      <div className="search-status-row">
+                        <span className="muted">
+                          命中 <strong>{searchResults.length}</strong> 条，索引{" "}
+                          <strong>
+                            {indexStatus.indexedFiles}/{indexableFileCount}
+                          </strong>{" "}
+                          文件
+                          {hasSearchInput && !searchIsFresh ? "（等待搜索）" : ""}。
+                        </span>
+                        {searching ? <span className="muted">搜索中...</span> : null}
+                      </div>
+
+                      <div className="search-status-row">
+                        <span className="muted">
+                          当前: <span className="search-status-chip">{searchQuery.trim() || "-"}</span>
+                        </span>
+                        <span className="muted">
+                          已执行:{" "}
+                          <span className="search-status-chip">
+                            {lastSearchAt ? lastSearchQuery || "-" : "-"}
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="search-status-row">
+                        {!searchOptions.realtime ? (
+                          <span className="muted">
+                            实时搜索已关闭，按 Enter/点击搜索开始。
+                            <button
+                              type="button"
+                              className="ghost-button tiny"
+                              onClick={() => {
+                                setSearchOptions((current) => ({ ...current, realtime: true }));
+                              }}
+                            >
+                              开启实时
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="muted">提示: 实时搜索开启，输入后自动刷新结果与树高亮。</span>
+                        )}
+                        {searchError ? <span className="error-text">{searchError}</span> : null}
+                      </div>
                     </div>
 
                     {showAdvancedSearch ? (

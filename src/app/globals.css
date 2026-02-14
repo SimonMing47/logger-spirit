@@ -1012,6 +1012,47 @@ a {
   font-size: 11px;
 }
 
+.search-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.search-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.search-status-row .muted {
+  font-size: 11px;
+  min-width: 0;
+}
+
+.search-status-chip {
+  display: inline-block;
+  max-width: 56ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 150, 230, 0.55);
+  background: rgba(223, 234, 255, 0.75);
+  color: #2f4f97;
+  vertical-align: baseline;
+}
+
+body[data-theme="cyberpunk"] .search-status-chip {
+  border-color: rgba(255, 180, 40, 0.65);
+  background: rgba(255, 180, 40, 0.12);
+  color: rgba(255, 210, 110, 0.95);
+}
+
 .search-input,
 .search-mini-input,
 .search-mini-select {
