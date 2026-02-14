@@ -108,6 +108,7 @@ const TIMELINE_MARGIN_X = 120;
 const TIMELINE_STROKE = "#7596ee";
 const TIMELINE_LINK_STROKE = "#5f7fd8";
 const SNAP_THRESHOLD = 6;
+const MAX_OVERLAP_ATTEMPTS = 50;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -418,11 +419,36 @@ export function CanvasBoard({
       return;
     }
 
+    const existingItems = valueRef.current.items;
+    const currentTimeline = computeTimelineLayout(existingItems);
+    const newWidth = NOTE_WIDTH;
+    const newHeight = NOTE_HEIGHT;
+    const gap = 12;
+
+    let adjustedY = y;
+    for (let attempt = 0; attempt < MAX_OVERLAP_ATTEMPTS; attempt += 1) {
+      const hasOverlap = existingItems.some((item) => {
+        const itemW = canvasItemWidth(item);
+        const itemH = canvasItemHeight(item);
+        const itemX = currentTimeline.xById.get(item.id) ?? item.x;
+        return (
+          x < itemX + itemW &&
+          x + newWidth > itemX &&
+          adjustedY < item.y + itemH &&
+          adjustedY + newHeight > item.y
+        );
+      });
+      if (!hasOverlap) {
+        break;
+      }
+      adjustedY += newHeight + gap;
+    }
+
     const note = createCanvasItem({
       kind: "note",
       text: normalized,
       x,
-      y,
+      y: adjustedY,
       color: randomPaperColor(),
       link,
       timestamp,

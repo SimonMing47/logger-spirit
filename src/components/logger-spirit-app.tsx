@@ -1989,12 +1989,19 @@ export function LoggerSpiritApp() {
     }
 
     setSearching(true);
-    // If the index isn't ready yet, kick off indexing and defer the actual search until
-    // we receive the next indexStatus update. This avoids "always empty" results when the
-    // user searches immediately after importing archives.
-    if (indexStatus.indexing || indexStatus.indexedFiles < indexableFileCount) {
+    // If the index is actively building, defer the search until it finishes.
+    if (indexStatus.indexing) {
       pendingSearchAfterIndexRef.current = true;
-      if (!indexStatus.indexing && activeWorkspaceRef.current) {
+      return;
+    }
+
+    // Kick off indexing if no files have been indexed yet, but don't block the
+    // search when partial results are already available.  Previous code also
+    // checked `indexStatus.indexedFiles < indexableFileCount` which permanently
+    // blocked searches whenever some files failed to read.
+    if (indexStatus.indexedFiles === 0 && indexableFileCount > 0) {
+      pendingSearchAfterIndexRef.current = true;
+      if (activeWorkspaceRef.current) {
         void buildSearchIndex(activeWorkspaceRef.current);
       }
       return;
@@ -2041,11 +2048,9 @@ export function LoggerSpiritApp() {
       return;
     }
 
-    if (!indexingWasActiveRef.current) {
-      return;
+    if (indexingWasActiveRef.current) {
+      indexingWasActiveRef.current = false;
     }
-
-    indexingWasActiveRef.current = false;
 
     if (!pendingSearchAfterIndexRef.current) {
       return;
