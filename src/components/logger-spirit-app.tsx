@@ -733,6 +733,8 @@ export function LoggerSpiritApp() {
   );
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [lastCompletedSearchSignature, setLastCompletedSearchSignature] = useState("");
+  const [lastSearchQuery, setLastSearchQuery] = useState("");
+  const [lastSearchAt, setLastSearchAt] = useState<number | null>(null);
 
   const [indexStatus, setIndexStatus] = useState<IndexStatusState>(DEFAULT_INDEX_STATUS);
   const [searchWorkerGeneration, setSearchWorkerGeneration] = useState(0);
@@ -1306,6 +1308,8 @@ export function LoggerSpiritApp() {
     latestSearchRequestIdRef.current = "";
     latestSearchSignatureRef.current = "";
     setLastCompletedSearchSignature("");
+    setLastSearchQuery("");
+    setLastSearchAt(null);
     setSearchResults([]);
     setSearchMatchedFiles(new Set());
     setSearchError("");
@@ -1827,6 +1831,8 @@ export function LoggerSpiritApp() {
 
         setSearching(false);
         setLastCompletedSearchSignature(latestSearchSignatureRef.current);
+        setLastSearchQuery(payload.query);
+        setLastSearchAt(Date.now());
 
         if (payload.error) {
           setSearchError(payload.error);
@@ -1839,7 +1845,11 @@ export function LoggerSpiritApp() {
 
         setSearchError("");
         setSearchResults(payload.results);
-        setSearchMatchedFiles(new Set(payload.matchedFiles));
+        const derivedMatchedFiles =
+          payload.matchedFiles?.length > 0
+            ? payload.matchedFiles
+            : Array.from(new Set(payload.results.map((result) => result.fileKey)));
+        setSearchMatchedFiles(new Set(derivedMatchedFiles));
         setTimelineEvents(payload.timeline);
         setSearchAggregation(payload.aggregations);
 
@@ -2808,6 +2818,8 @@ export function LoggerSpiritApp() {
     latestSearchRequestIdRef.current = "";
     latestSearchSignatureRef.current = "";
     setLastCompletedSearchSignature("");
+    setLastSearchQuery("");
+    setLastSearchAt(null);
     setSearching(false);
     setSearchError("");
     setSearchResults([]);
@@ -3359,8 +3371,8 @@ export function LoggerSpiritApp() {
 
         const fileKey = searchFileKey(rootId, node.path);
         const tabOpened = openTabs.some((tab) => tab.key === fileKey);
-        const searchHit = searchMatchedFiles.has(fileKey);
         const hitCount = searchHitCounts.get(fileKey) ?? 0;
+        const searchHit = hitCount > 0 || searchMatchedFiles.has(fileKey);
 
         if (treeOnlyMatched && !searchHit) {
           return;
@@ -3994,6 +4006,15 @@ export function LoggerSpiritApp() {
                       <p className="muted">
                         命中 {searchResults.length} 条，索引 {indexStatus.indexedFiles}/{indexableFileCount} 文件
                         {hasSearchInput && !searchIsFresh ? "（等待搜索）" : ""}。
+                      </p>
+                      <p className="muted">
+                        当前关键字: <strong>{searchQuery.trim() || "-"}</strong>
+                        {lastSearchAt ? (
+                          <>
+                            {" "}
+                            | 上次执行: <strong>{lastSearchQuery || "-"}</strong>
+                          </>
+                        ) : null}
                       </p>
                       {!searchOptions.realtime ? (
                         <p className="muted">
