@@ -735,6 +735,7 @@ export function LoggerSpiritApp() {
   const [lastCompletedSearchSignature, setLastCompletedSearchSignature] = useState("");
   const [lastSearchQuery, setLastSearchQuery] = useState("");
   const [lastSearchAt, setLastSearchAt] = useState<number | null>(null);
+  const [hoveredSearchFileKey, setHoveredSearchFileKey] = useState<string | null>(null);
 
   const [indexStatus, setIndexStatus] = useState<IndexStatusState>(DEFAULT_INDEX_STATUS);
   const [searchWorkerGeneration, setSearchWorkerGeneration] = useState(0);
@@ -896,6 +897,43 @@ export function LoggerSpiritApp() {
     });
     return counts;
   }, [searchResults]);
+
+  // Search/tree linkage should be driven by the actual hit list (searchResults), not
+  // by the worker's optional `matchedFiles` list which can be stale/empty in edge cases.
+  const matchedFileKeysFromResults = useMemo(() => {
+    return new Set<string>(searchResults.map((result) => result.fileKey));
+  }, [searchResults]);
+
+  const matchedFileCount = matchedFileKeysFromResults.size;
+
+  const dirHitCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    const parseFileKey = (fileKey: string): { rootId: string; filePath: string } | null => {
+      const idx = fileKey.indexOf("::");
+      if (idx < 0) {
+        return null;
+      }
+      return { rootId: fileKey.slice(0, idx), filePath: fileKey.slice(idx + 2) };
+    };
+
+    for (const [fileKey, hitCount] of searchHitCounts) {
+      if (hitCount <= 0) {
+        continue;
+      }
+      const parsed = parseFileKey(fileKey);
+      if (!parsed) {
+        continue;
+      }
+
+      const ancestors = collectAncestorNodeIds(parsed.rootId, parsed.filePath);
+      ancestors.forEach((id) => {
+        counts.set(id, (counts.get(id) ?? 0) + hitCount);
+      });
+    }
+
+    return counts;
+  }, [searchHitCounts]);
 
   const linkedLogRefSet = useMemo(() => {
     const refs = new Set<string>();
@@ -3344,6 +3382,7 @@ export function LoggerSpiritApp() {
         if (node.kind === "dir") {
           const isOpen = expandedNodes.has(node.id);
           const children = renderTree(rootId, node.children, depth + 1);
+          const hitCount = dirHitCounts.get(node.id) ?? 0;
           const shouldShow = treeOnlyMatched
             ? Boolean(children)
             : Boolean(children) || matchesFilter(node);
@@ -3356,12 +3395,13 @@ export function LoggerSpiritApp() {
             <div key={node.id}>
               <button
                 type="button"
-                className="tree-node tree-dir"
+                className={`tree-node tree-dir ${hitCount > 0 ? "tree-dir-hit" : ""}`}
                 style={{ paddingLeft: 14 + depth * 14 }}
                 onClick={() => toggleNode(node.id)}
               >
                 <span className="tree-node-icon">{isOpen ? "▾" : "▸"}</span>
                 <span className="tree-node-label">{node.name}</span>
+                {hitCount > 0 ? <span className="tree-hit-badge">{hitCount}</span> : null}
               </button>
               {isOpen ? children : null}
             </div>,
@@ -3372,7 +3412,8 @@ export function LoggerSpiritApp() {
         const fileKey = searchFileKey(rootId, node.path);
         const tabOpened = openTabs.some((tab) => tab.key === fileKey);
         const hitCount = searchHitCounts.get(fileKey) ?? 0;
-        const searchHit = hitCount > 0 || searchMatchedFiles.has(fileKey);
+        const searchHit = hitCount > 0 || matchedFileKeysFromResults.has(fileKey);
+        const isHovered = hoveredSearchFileKey === fileKey;
 
         if (treeOnlyMatched && !searchHit) {
           return;
@@ -3386,7 +3427,7 @@ export function LoggerSpiritApp() {
           <button
             type="button"
             key={node.id}
-            className={`tree-node tree-file ${tabOpened && activeTabKey === fileKey ? "tree-selected" : ""} ${searchHit ? "tree-search-hit" : ""}`}
+            className={`tree-node tree-file ${tabOpened && activeTabKey === fileKey ? "tree-selected" : ""} ${searchHit ? "tree-search-hit" : ""} ${isHovered ? "tree-hover-hit" : ""}`}
             style={{ paddingLeft: 14 + depth * 14 }}
             onClick={() => {
               void openLogTab({ rootId, filePath: node.path });
@@ -3407,11 +3448,13 @@ export function LoggerSpiritApp() {
     },
     [
       activeTabKey,
+      dirHitCounts,
       expandedNodes,
+      hoveredSearchFileKey,
+      matchedFileKeysFromResults,
       openLogTab,
       openTabs,
       searchHitCounts,
-      searchMatchedFiles,
       toggleNode,
       treeFilter,
       treeOnlyMatched,
@@ -3826,7 +3869,7 @@ export function LoggerSpiritApp() {
                     </div>
                   </div>
 
-	                  <div className="tree-filter-row">
+                    <div className="tree-filter-row">
 	                    <input
 	                      className="tree-filter-input"
 	                      ref={treeFilterInputRef}
@@ -3847,9 +3890,9 @@ export function LoggerSpiritApp() {
                     <button
                       type="button"
                       className={`ghost-button tiny ${treeOnlyMatched ? "active" : ""}`}
-                      disabled={searchMatchedFiles.size === 0}
+                      disabled={matchedFileCount === 0}
                       title={
-                        searchMatchedFiles.size === 0
+                        matchedFileCount === 0
                           ? "暂无命中结果"
                           : treeOnlyMatched
                             ? "显示全部文件"
@@ -3873,9 +3916,9 @@ export function LoggerSpiritApp() {
                       </button>
                     ) : null}
 
-                    {searchMatchedFiles.size > 0 ? (
+                    {matchedFileCount > 0 ? (
                       <small className="muted">
-                        命中 {searchMatchedFiles.size} 文件
+                        命中 {matchedFileCount} 文件
                       </small>
                     ) : null}
                   </div>
@@ -4005,7 +4048,8 @@ export function LoggerSpiritApp() {
                     <div className="search-status">
                       <div className="search-status-row">
                         <span className="muted">
-                          命中 <strong>{searchResults.length}</strong> 条，索引{" "}
+                          命中 <strong>{searchResults.length}</strong> 条 /{" "}
+                          <strong>{matchedFileCount}</strong> 文件，索引{" "}
                           <strong>
                             {indexStatus.indexedFiles}/{indexableFileCount}
                           </strong>{" "}
@@ -4355,32 +4399,35 @@ export function LoggerSpiritApp() {
                               ) : null}
 	                          </div>
 	                        ) : (
-	                          <VirtualList
-	                            className="search-results compact"
-	                            style={{ flex: `0 1 ${searchResultsHeight}px` }}
-	                            itemCount={searchResults.length}
-	                            itemHeight={92}
-	                            overscan={10}
-	                            renderRow={(index, rowStyle) => {
-	                              const result = searchResults[index];
-	                              if (!result) {
-	                                return null;
-	                              }
-	                              const resultLogRef = logRefKey(
-	                                result.rootId,
-	                                result.filePath,
-	                                result.line,
-	                              );
-	                              const isActive = activeLogRef === resultLogRef;
+		                          <VirtualList
+		                            className="search-results compact"
+		                            style={{ flex: `0 1 ${searchResultsHeight}px` }}
+		                            itemCount={searchResults.length}
+		                            itemHeight={92}
+		                            overscan={10}
+		                            renderRow={(index, rowStyle) => {
+		                              const result = searchResults[index];
+		                              if (!result) {
+		                                return null;
+		                              }
+		                              const resultFileKey = result.fileKey;
+		                              const resultLogRef = logRefKey(
+		                                result.rootId,
+		                                result.filePath,
+		                                result.line,
+		                              );
+		                              const isActive = activeLogRef === resultLogRef;
 
-	                              return (
-	                                <div
-	                                  style={rowStyle}
-	                                  className={`search-item compact ${isActive ? "active" : ""}`}
-	                                  draggable
-	                                  onDragStart={(event) => {
-	                                    const payload = JSON.stringify({
-	                                      text: `[${result.sourceName}] ${result.filePath}:${result.line} ${result.preview}`,
+		                              return (
+		                                <div
+		                                  style={rowStyle}
+		                                  className={`search-item compact ${isActive ? "active" : ""}`}
+		                                  onMouseEnter={() => setHoveredSearchFileKey(resultFileKey)}
+		                                  onMouseLeave={() => setHoveredSearchFileKey((current) => (current === resultFileKey ? null : current))}
+		                                  draggable
+		                                  onDragStart={(event) => {
+		                                    const payload = JSON.stringify({
+		                                      text: `[${result.sourceName}] ${result.filePath}:${result.line} ${result.preview}`,
 	                                      link: {
 	                                        workspaceId: activeWorkspace?.id,
 	                                        rootId: result.rootId,

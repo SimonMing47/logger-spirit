@@ -941,6 +941,21 @@ a {
   color: #a25b2a;
 }
 
+.tree-dir-hit {
+  box-shadow: inset 3px 0 0 rgba(255, 159, 67, 0.8);
+  background: rgba(255, 211, 142, 0.18);
+}
+
+.tree-hover-hit {
+  outline: 2px solid rgba(53, 104, 255, 0.35);
+  outline-offset: -2px;
+}
+
+.tree-dir-hit .tree-node-icon,
+.tree-dir-hit .tree-node-label {
+  color: #a25b2a;
+}
+
 .tree-filter-row {
   display: flex;
   flex-wrap: wrap;
