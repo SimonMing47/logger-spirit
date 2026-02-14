@@ -190,6 +190,30 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function buildSearchSignature(
+  workspaceId: string,
+  query: string,
+  options: SearchOptions,
+): string {
+  const filters = options.filters ?? {};
+  return JSON.stringify({
+    workspaceId,
+    query,
+    regex: options.regex,
+    caseSensitive: options.caseSensitive,
+    contextLines: options.contextLines,
+    maxResults: options.maxResults,
+    filters: {
+      pod: typeof filters.pod === "string" ? filters.pod : null,
+      container: typeof filters.container === "string" ? filters.container : null,
+      namespace: typeof filters.namespace === "string" ? filters.namespace : null,
+      level: typeof filters.level === "string" ? filters.level : null,
+      timeFrom: typeof filters.timeFrom === "number" ? filters.timeFrom : null,
+      timeTo: typeof filters.timeTo === "number" ? filters.timeTo : null,
+    },
+  });
+}
+
 type HighlightSpec =
   | {
       kind: "text";
@@ -708,6 +732,7 @@ export function LoggerSpiritApp() {
     DEFAULT_SEARCH_AGGREGATION,
   );
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [lastCompletedSearchSignature, setLastCompletedSearchSignature] = useState("");
 
   const [indexStatus, setIndexStatus] = useState<IndexStatusState>(DEFAULT_INDEX_STATUS);
   const [searchWorkerGeneration, setSearchWorkerGeneration] = useState(0);
@@ -775,6 +800,7 @@ export function LoggerSpiritApp() {
 
   const searchWorkerRef = useRef<Worker | null>(null);
   const latestSearchRequestIdRef = useRef("");
+  const latestSearchSignatureRef = useRef("");
   const indexedSignaturesRef = useRef<Map<string, Map<string, string>>>(new Map());
   const activeWorkspaceIdRef = useRef("");
   const activeWorkspaceRef = useRef<WorkspaceManifest | null>(null);
@@ -1277,6 +1303,9 @@ export function LoggerSpiritApp() {
     setActiveLogRef(null);
     setSelectedSnippet("");
 
+    latestSearchRequestIdRef.current = "";
+    latestSearchSignatureRef.current = "";
+    setLastCompletedSearchSignature("");
     setSearchResults([]);
     setSearchMatchedFiles(new Set());
     setSearchError("");
@@ -1797,6 +1826,7 @@ export function LoggerSpiritApp() {
         }
 
         setSearching(false);
+        setLastCompletedSearchSignature(latestSearchSignatureRef.current);
 
         if (payload.error) {
           setSearchError(payload.error);
@@ -1975,6 +2005,20 @@ export function LoggerSpiritApp() {
 
   const activeManifestId = activeWorkspace?.id ?? "";
 
+  const currentSearchSignature = useMemo(() => {
+    if (!activeManifestId) {
+      return "";
+    }
+    return buildSearchSignature(activeManifestId, searchQuery, searchOptions);
+  }, [activeManifestId, searchOptions, searchQuery]);
+
+  const searchIsFresh = useMemo(() => {
+    if (!currentSearchSignature) {
+      return true;
+    }
+    return currentSearchSignature === lastCompletedSearchSignature;
+  }, [currentSearchSignature, lastCompletedSearchSignature]);
+
   const executeSearch = useCallback(() => {
     if (!activeManifestId || !searchWorkerRef.current) {
       return;
@@ -1992,6 +2036,11 @@ export function LoggerSpiritApp() {
 
     const requestId = createId("search");
     latestSearchRequestIdRef.current = requestId;
+    latestSearchSignatureRef.current = buildSearchSignature(
+      activeManifestId,
+      searchQuery,
+      searchOptions,
+    );
 
     if (!searchOptions.realtime) {
       setTreeAutoExpandBackup([...expandedNodesRef.current]);
@@ -2757,6 +2806,8 @@ export function LoggerSpiritApp() {
 
   const clearSearch = useCallback(() => {
     latestSearchRequestIdRef.current = "";
+    latestSearchSignatureRef.current = "";
+    setLastCompletedSearchSignature("");
     setSearching(false);
     setSearchError("");
     setSearchResults([]);
@@ -3895,6 +3946,7 @@ export function LoggerSpiritApp() {
 	                        onChange={(event) => setSearchQuery(event.target.value)}
 	                        onKeyDown={(event) => {
 	                          if (event.key === "Enter") {
+                              event.preventDefault();
                               if (!showSearchInsights) {
                                 toggleSearchInsights();
                               }
@@ -3940,8 +3992,23 @@ export function LoggerSpiritApp() {
 
                     <div className="search-meta">
                       <p className="muted">
-                        命中 {searchResults.length} 条，索引 {indexStatus.indexedFiles} 文件，相关文件已高亮。
+                        命中 {searchResults.length} 条，索引 {indexStatus.indexedFiles}/{indexableFileCount} 文件
+                        {hasSearchInput && !searchIsFresh ? "（等待搜索）" : ""}。
                       </p>
+                      {!searchOptions.realtime ? (
+                        <p className="muted">
+                          实时搜索已关闭，按 Enter/点击搜索开始。
+                          <button
+                            type="button"
+                            className="ghost-button tiny"
+                            onClick={() => {
+                              setSearchOptions((current) => ({ ...current, realtime: true }));
+                            }}
+                          >
+                            开启实时
+                          </button>
+                        </p>
+                      ) : null}
                       {searchError ? <p className="error-text">{searchError}</p> : null}
                     </div>
 
@@ -4236,8 +4303,16 @@ export function LoggerSpiritApp() {
 	                            className="search-results compact"
 	                            style={{ flex: `0 1 ${searchResultsHeight}px` }}
 	                          >
-	                            <p className="muted">
-                                {searching ? "搜索中..." : hasSearchInput ? "暂无命中结果。" : "请输入关键字开始搜索。"}
+		                            <p className="muted">
+                                {searching
+                                  ? "搜索中..."
+                                  : !hasSearchInput
+                                    ? "请输入关键字开始搜索。"
+                                    : !searchIsFresh
+                                      ? searchOptions.realtime
+                                        ? "输入中，将自动搜索..."
+                                        : "按 Enter/点击搜索开始。"
+                                      : "暂无命中结果。"}
                               </p>
                               {indexStatus.indexing ? (
                                 <p className="muted">索引更新中，结果会自动刷新。</p>
