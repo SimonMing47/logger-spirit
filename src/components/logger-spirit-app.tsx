@@ -710,6 +710,7 @@ export function LoggerSpiritApp() {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
 
   const [indexStatus, setIndexStatus] = useState<IndexStatusState>(DEFAULT_INDEX_STATUS);
+  const [searchWorkerGeneration, setSearchWorkerGeneration] = useState(0);
 
   const [leftWidth, setLeftWidth] = useState(320);
   const [rightWidth, setRightWidth] = useState(380);
@@ -1767,6 +1768,11 @@ export function LoggerSpiritApp() {
     });
 
     searchWorkerRef.current = worker;
+    // The worker holds the in-memory index. If the worker restarts (e.g. HMR),
+    // force a full reindex by clearing our signature cache and bumping a generation.
+    indexedSignaturesRef.current.clear();
+    setIndexStatus(DEFAULT_INDEX_STATUS);
+    setSearchWorkerGeneration((current) => current + 1);
 
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const payload = event.data;
@@ -1965,7 +1971,7 @@ export function LoggerSpiritApp() {
     }
 
     void buildSearchIndex(workspace);
-  }, [activeWorkspaceId, buildSearchIndex, directoryHandle, indexSignature]);
+  }, [activeWorkspaceId, buildSearchIndex, directoryHandle, indexSignature, searchWorkerGeneration]);
 
   const activeManifestId = activeWorkspace?.id ?? "";
 
@@ -2039,7 +2045,7 @@ export function LoggerSpiritApp() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeManifestId, executeSearch, searchOptions.realtime]);
+  }, [activeManifestId, executeSearch, searchOptions.realtime, searchWorkerGeneration]);
 
   useEffect(() => {
     expandedNodesRef.current = expandedNodes;
