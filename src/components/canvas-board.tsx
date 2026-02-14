@@ -418,11 +418,36 @@ export function CanvasBoard({
       return;
     }
 
+    const existingItems = valueRef.current.items;
+    const currentTimeline = computeTimelineLayout(existingItems);
+    const newWidth = NOTE_WIDTH;
+    const newHeight = NOTE_HEIGHT;
+    const gap = 12;
+
+    let adjustedY = y;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const hasOverlap = existingItems.some((item) => {
+        const itemW = canvasItemWidth(item);
+        const itemH = canvasItemHeight(item);
+        const itemX = currentTimeline.xById.get(item.id) ?? item.x;
+        return (
+          x < itemX + itemW &&
+          x + newWidth > itemX &&
+          adjustedY < item.y + itemH &&
+          adjustedY + newHeight > item.y
+        );
+      });
+      if (!hasOverlap) {
+        break;
+      }
+      adjustedY += newHeight + gap;
+    }
+
     const note = createCanvasItem({
       kind: "note",
       text: normalized,
       x,
-      y,
+      y: adjustedY,
       color: randomPaperColor(),
       link,
       timestamp,
