@@ -820,12 +820,37 @@ export function LoggerSpiritApp() {
   const indexingWasActiveRef = useRef(false);
   const expandedNodesRef = useRef<Set<string>>(new Set());
 
+  const effectiveSearchFilters = useMemo(() => {
+    // When advanced panel is collapsed, avoid stale hidden filters blocking all results.
+    return showAdvancedSearch ? searchOptions.filters : {};
+  }, [searchOptions.filters, showAdvancedSearch]);
+
+  const effectiveSearchOptions = useMemo<SearchOptions>(
+    () => ({
+      ...searchOptions,
+      filters: effectiveSearchFilters,
+    }),
+    [effectiveSearchFilters, searchOptions],
+  );
+
+  const configuredFilterCount = useMemo(() => {
+    const filters = searchOptions.filters;
+    return [
+      filters.pod,
+      filters.container,
+      filters.namespace,
+      filters.level,
+      filters.timeFrom,
+      filters.timeTo,
+    ].filter(Boolean).length;
+  }, [searchOptions.filters]);
+
   const hasSearchInput = useMemo(() => {
     if (searchQuery.trim()) {
       return true;
     }
 
-    const filters = searchOptions.filters;
+    const filters = effectiveSearchFilters;
     return Boolean(
       filters.pod ||
         filters.container ||
@@ -834,7 +859,7 @@ export function LoggerSpiritApp() {
         filters.timeFrom ||
       filters.timeTo,
     );
-  }, [searchOptions.filters, searchQuery]);
+  }, [effectiveSearchFilters, searchQuery]);
 
   const viewerHighlightSpec = useMemo(
     () =>
@@ -2057,8 +2082,8 @@ export function LoggerSpiritApp() {
     if (!activeManifestId) {
       return "";
     }
-    return buildSearchSignature(activeManifestId, searchQuery, searchOptions);
-  }, [activeManifestId, searchOptions, searchQuery]);
+    return buildSearchSignature(activeManifestId, searchQuery, effectiveSearchOptions);
+  }, [activeManifestId, effectiveSearchOptions, searchQuery]);
 
   const searchIsFresh = useMemo(() => {
     if (!currentSearchSignature) {
@@ -2087,12 +2112,10 @@ export function LoggerSpiritApp() {
     latestSearchSignatureRef.current = buildSearchSignature(
       activeManifestId,
       searchQuery,
-      searchOptions,
+      effectiveSearchOptions,
     );
 
-    if (!searchOptions.realtime) {
-      setTreeAutoExpandBackup([...expandedNodesRef.current]);
-    }
+    setTreeAutoExpandBackup([...expandedNodesRef.current]);
 
     setSearching(true);
     // If the index is actively building, keep searching on the already-indexed subset
@@ -2117,21 +2140,21 @@ export function LoggerSpiritApp() {
       requestId,
       workspaceId: activeManifestId,
       query: searchQuery,
-      options: searchOptions,
+      options: effectiveSearchOptions,
     });
   }, [
     activeManifestId,
     buildSearchIndex,
+    effectiveSearchOptions,
     hasSearchInput,
     indexStatus.indexedFiles,
     indexStatus.indexing,
     indexableFileCount,
-    searchOptions,
     searchQuery,
   ]);
 
   useEffect(() => {
-    if (!activeManifestId || !searchOptions.realtime) {
+    if (!activeManifestId) {
       return;
     }
 
@@ -2142,7 +2165,7 @@ export function LoggerSpiritApp() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeManifestId, executeSearch, searchOptions.realtime, searchWorkerGeneration]);
+  }, [activeManifestId, executeSearch, searchWorkerGeneration]);
 
   useEffect(() => {
     expandedNodesRef.current = expandedNodes;
@@ -4072,21 +4095,21 @@ export function LoggerSpiritApp() {
                       </div>
 
                       <div className="search-status-row">
-                        {!searchOptions.realtime ? (
+                        {!showAdvancedSearch && configuredFilterCount > 0 ? (
                           <span className="muted">
-                            实时搜索已关闭，按 Enter/点击搜索开始。
+                            已配置 {configuredFilterCount} 个高级过滤条件（当前已暂不生效）。
                             <button
                               type="button"
                               className="ghost-button tiny"
                               onClick={() => {
-                                setSearchOptions((current) => ({ ...current, realtime: true }));
+                                setShowAdvancedSearch(true);
                               }}
                             >
-                              开启实时
+                              展开高级
                             </button>
                           </span>
                         ) : (
-                          <span className="muted">提示: 实时搜索开启，输入后自动刷新结果与树高亮。</span>
+                          <span className="muted">提示: 输入后自动搜索，命中会联动左侧树高亮与展开。</span>
                         )}
                         {searchError ? <span className="error-text">{searchError}</span> : null}
                       </div>
@@ -4121,20 +4144,6 @@ export function LoggerSpiritApp() {
                               }
                             />
                             区分大小写
-                          </label>
-
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={searchOptions.realtime}
-                              onChange={(event) =>
-                                setSearchOptions((current) => ({
-                                  ...current,
-                                  realtime: event.target.checked,
-                                }))
-                              }
-                            />
-                            实时搜索
                           </label>
 
                           <label>
